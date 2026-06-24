@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Iterable, Optional, Union
 
 from .report import DiagnosisReport
-from .utils import get_value
+from .utils import bool_value, first_value, get_value
 
 
 TEXT_COLUMNS = ["text", "prompt", "completion", "response", "output", "instruction", "input"]
@@ -144,6 +144,11 @@ def _token_estimate(text: str) -> int:
     return max(len(text.split()), len(text) // 4)
 
 
+def _contains_bad_text(text: str) -> bool:
+    lowered = text.lower()
+    return "�" in text or "<html" in lowered or "</html" in lowered or "lorem ipsum" in lowered
+
+
 def has_instruction_markers(text: str) -> bool:
     lowered = text.lower()
     marker_pairs = [
@@ -184,6 +189,7 @@ def check_dataset(
     dataset_path: Optional[Union[str, Path]] = None,
     eval_dataset: Any = None,
     tokenizer: Any = None,
+    training_args: Any = None,
     sample_size: int = 50,
     sequence_length: Optional[int] = None,
 ) -> None:
@@ -218,6 +224,16 @@ def check_dataset(
             "Check the dataset path, split name, and filtering code before training.",
         )
         return
+
+    if len(rows) < 8:
+        report.add(
+            "dataset.too_small",
+            "Dataset sample is very small",
+            "info",
+            "Fewer than 8 rows were available in the sampled dataset.",
+            "Tiny datasets often overfit quickly; use more examples or reduce epochs and LoRA rank.",
+            sampled_rows=len(rows),
+        )
 
     empty_rows = [
         index for index, row in enumerate(rows) if not _row_text(row).strip() and not has_chat_messages(row)
@@ -259,6 +275,20 @@ def check_dataset(
             "Remove rows with missing answers; they often cause models to learn blank or low-quality replies.",
             count=len(short_responses),
             first_index=short_responses[0],
+        )
+
+    bad_text_rows = [
+        index for index, row in enumerate(rows) if _row_text(row).strip() and _contains_bad_text(_row_text(row))
+    ]
+    if bad_text_rows:
+        report.add(
+            "dataset.bad_text_artifacts",
+            "Bad text artifacts found",
+            "warning",
+            "Some sampled rows contain replacement characters, HTML, or placeholder text.",
+            "Clean scraped data before fine-tuning; bad artifacts often show up in model outputs.",
+            count=len(bad_text_rows),
+            first_index=bad_text_rows[0],
         )
 
     chat_without_assistant = [
@@ -307,7 +337,25 @@ def check_dataset(
             first_index=label_mismatch[0],
         )
 
+    pad_token_id = get_value(tokenizer, "pad_token_id")
+    if pad_token_id is not None:
+        labels_with_pad = [
+            index for index, row in enumerate(rows) if _labels(row) and pad_token_id in _labels(row)
+        ]
+        if labels_with_pad:
+            report.add(
+                "dataset.pad_token_in_labels",
+                "Pad token appears in labels",
+                "warning",
+                "Some labels contain the tokenizer pad_token_id.",
+                "Mask padding labels to -100 so the model is not trained to predict padding.",
+                count=len(labels_with_pad),
+                first_index=labels_with_pad[0],
+                pad_token_id=pad_token_id,
+            )
+
     if sequence_length:
+        estimates = [_token_estimate(_row_text(row)) for row in rows if _row_text(row).strip()]
         long_rows = [
             index
             for index, row in enumerate(rows)
@@ -323,6 +371,55 @@ def check_dataset(
                 count=len(long_rows),
                 first_index=long_rows[0],
                 sequence_length=sequence_length,
+            )
+        if estimates and min(estimates) > 0 and max(estimates) / min(estimates) >= 8:
+            group_by_length = bool_value(training_args, ["group_by_length"], False)
+            if not group_by_length:
+                report.add(
+                    "dataset.length_variance_high",
+                    "Sample lengths vary widely",
+                    "info",
+                    "The sampled rows have very different estimated lengths.",
+                    "Set group_by_length=True or bucket by length to reduce padding waste.",
+                    shortest_estimated_tokens=min(estimates),
+                    longest_estimated_tokens=max(estimates),
+                )
+
+    response_template = first_value(training_args, ["response_template", "completion_template"], None)
+    if response_template:
+        template_text = str(response_template)
+        rows_with_template = [
+            index for index, row in enumerate(rows) if template_text in _row_text(row)
+        ]
+        if not rows_with_template:
+            report.add(
+                "dataset.response_template_missing",
+                "Response template was not found in samples",
+                "warning",
+                "A response/completion template is configured, but it was not found in sampled text.",
+                "Completion-only masking may hide every label if the template string does not match the data.",
+                response_template=template_text,
+            )
+
+    packing = bool_value(training_args, ["packing"], False)
+    if packing:
+        eos_token = get_value(tokenizer, "eos_token")
+        if eos_token and not any(str(eos_token) in _row_text(row) for row in rows):
+            report.add(
+                "dataset.packing_without_eos",
+                "Packing is enabled but EOS markers were not found",
+                "warning",
+                "Packed examples can bleed into each other when EOS tokens are missing.",
+                "Make sure each formatted training sample ends with tokenizer.eos_token before packing.",
+                eos_token=eos_token,
+            )
+        elif eos_token is None:
+            report.add(
+                "dataset.packing_eos_unknown",
+                "Packing is enabled without a visible EOS token",
+                "warning",
+                "PEFT Doctor could not verify EOS boundaries for packed training.",
+                "Set tokenizer.eos_token and make sure packed examples are separated by EOS.",
             )
 
     if eval_dataset is not None:

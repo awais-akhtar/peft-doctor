@@ -127,6 +127,17 @@ def check(
     seed: Optional[int] = typer.Option(None, "--seed", help="Training seed."),
     max_grad_norm: Optional[float] = typer.Option(None, "--max-grad-norm", help="Gradient clipping value."),
     dataloader_num_workers: Optional[int] = typer.Option(None, "--dataloader-num-workers", help="Trainer dataloader workers."),
+    device_map: Optional[str] = typer.Option(None, "--device-map", help="Model device_map, for example auto."),
+    world_size: Optional[int] = typer.Option(None, "--world-size", help="Distributed world size."),
+    local_rank: Optional[int] = typer.Option(None, "--local-rank", help="Distributed local rank."),
+    fsdp: Optional[str] = typer.Option(None, "--fsdp", help="Trainer FSDP setting."),
+    deepspeed: Optional[str] = typer.Option(None, "--deepspeed", help="DeepSpeed config path or setting."),
+    torch_compile: bool = typer.Option(False, "--torch-compile", help="Tell the checker torch_compile is enabled."),
+    packing: bool = typer.Option(False, "--packing", help="Tell the checker dataset packing is enabled."),
+    group_by_length: bool = typer.Option(False, "--group-by-length", help="Tell the checker length grouping is enabled."),
+    response_template: Optional[str] = typer.Option(None, "--response-template", help="Completion-only response template string."),
+    remove_unused_columns: Optional[bool] = typer.Option(None, "--remove-unused-columns/--keep-unused-columns", help="Trainer remove_unused_columns setting."),
+    gradient_checkpointing_use_reentrant: Optional[bool] = typer.Option(None, "--gradient-checkpointing-use-reentrant/--gradient-checkpointing-non-reentrant", help="Gradient checkpointing use_reentrant setting."),
     load_in_4bit: bool = typer.Option(False, "--load-in-4bit", help="Tell the checker the model will use 4-bit loading."),
     bf16: bool = typer.Option(True, "--bf16/--no-bf16", help="Tell the checker whether bf16 is enabled."),
     fp16: bool = typer.Option(False, "--fp16/--no-fp16", help="Tell the checker whether fp16 is enabled."),
@@ -174,6 +185,30 @@ def check(
         training_args["max_grad_norm"] = max_grad_norm
     if dataloader_num_workers is not None:
         training_args["dataloader_num_workers"] = dataloader_num_workers
+    if device_map is not None:
+        training_args["device_map"] = device_map
+    if world_size is not None:
+        training_args["world_size"] = world_size
+    if local_rank is not None:
+        training_args["local_rank"] = local_rank
+    if fsdp is not None:
+        training_args["fsdp"] = fsdp
+    if deepspeed is not None:
+        training_args["deepspeed"] = deepspeed
+    if torch_compile:
+        training_args["torch_compile"] = torch_compile
+    if packing:
+        training_args["packing"] = packing
+    if group_by_length:
+        training_args["group_by_length"] = group_by_length
+    if response_template is not None:
+        training_args["response_template"] = response_template
+    if remove_unused_columns is not None:
+        training_args["remove_unused_columns"] = remove_unused_columns
+    if gradient_checkpointing_use_reentrant is not None:
+        training_args["gradient_checkpointing_kwargs"] = {
+            "use_reentrant": gradient_checkpointing_use_reentrant
+        }
 
     family = infer_model_family(config, model_name=model)
     peft_config = create_safe_lora_config(model=config, model_name=model, model_family=family, as_dict=True)

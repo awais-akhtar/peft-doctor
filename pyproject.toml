@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "peft-doctor"
-version = "0.2.0"
-description = "Diagnose CUDA OOM, NaN loss, LoRA target modules, tokenizer padding, QLoRA, PEFT data, and adapter merge problems."
+version = "0.3.0"
+description = "Advanced PEFT, LoRA, and QLoRA diagnostics for CUDA OOM, NaN loss, data masking, distributed training, and adapter export."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
@@ -45,6 +45,16 @@ keywords = [
   "train eval leakage",
   "label masking",
   "save_pretrained",
+  "deepspeed",
+  "fsdp",
+  "ddp",
+  "torch compile",
+  "packing",
+  "completion masking",
+  "rope scaling",
+  "context length",
+  "special tokens",
+  "modules_to_save",
   "llama",
   "qwen",
   "mistral",

@@ -62,6 +62,25 @@ peft-doctor check \
   --gradient-checkpointing
 ```
 
+Advanced distributed or packed SFT check:
+
+```bash
+peft-doctor check \
+  --model meta-llama/Llama-3-8B \
+  --dataset train.jsonl \
+  --eval-dataset eval.jsonl \
+  --load-in-4bit \
+  --device-map auto \
+  --world-size 2 \
+  --fsdp full_shard \
+  --deepspeed ds_config.json \
+  --torch-compile \
+  --packing \
+  --response-template "### Response:" \
+  --gradient-checkpointing-use-reentrant \
+  --remove-unused-columns
+```
+
 Debug a likely OOM:
 
 ```bash
@@ -109,6 +128,16 @@ Useful options:
 - `--seed`: training seed
 - `--max-grad-norm`: gradient clipping value
 - `--dataloader-num-workers`: dataloader worker count
+- `--device-map`: model loading device map, such as `auto`
+- `--world-size` and `--local-rank`: distributed launch metadata
+- `--fsdp`: FSDP mode
+- `--deepspeed`: DeepSpeed config path or setting
+- `--torch-compile`: check torch compile risks
+- `--packing`: check packed dataset EOS risks
+- `--group-by-length`: tell the checker length grouping is enabled
+- `--response-template`: completion-only response marker
+- `--remove-unused-columns` / `--keep-unused-columns`: Trainer column behavior
+- `--gradient-checkpointing-use-reentrant` / `--gradient-checkpointing-non-reentrant`: checkpointing mode
 
 ## `peft-doctor targets`
 

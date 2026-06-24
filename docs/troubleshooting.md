@@ -155,7 +155,7 @@ Run:
 
 For private or gated Hugging Face models, use Colab Secrets with `HF_TOKEN`. Do not paste tokens into notebooks.
 
-## Ten More Problems PEFT Doctor Checks
+## More Advanced Problems PEFT Doctor Checks
 
 These are common problems that often show up after the first training run works.
 
@@ -242,4 +242,107 @@ peft-doctor check \
   --lr-scheduler-type cosine \
   --save-total-limit 2 \
   --seed 42
+```
+
+## Twelve Complicated Fine-Tuning Problems And Fixes
+
+1. `device_map="auto"` with DDP:
+
+```text
+Problem: each distributed process may try to shard the model across all GPUs.
+Fix: avoid device_map="auto" in torchrun/DDP; let each process own one GPU.
+```
+
+2. FSDP with QLoRA:
+
+```text
+Problem: FSDP wrapping and k-bit parameters can conflict.
+Fix: start with single-process QLoRA or use a recipe known to support FSDP + PEFT.
+```
+
+3. DeepSpeed with QLoRA:
+
+```text
+Problem: ZeRO stage, bitsandbytes optimizer, and adapter parameters need compatible placement.
+Fix: verify your DeepSpeed stage and PEFT recipe before long runs.
+```
+
+4. `torch_compile` with 4-bit or 8-bit loading:
+
+```text
+Problem: compile support varies across quantized modules.
+Fix: disable torch_compile until the run is stable.
+```
+
+5. Reentrant gradient checkpointing:
+
+```text
+Problem: QLoRA can be more fragile with reentrant checkpointing.
+Fix: use gradient_checkpointing_kwargs={"use_reentrant": False}.
+```
+
+6. Sequence length exceeds model context:
+
+```text
+Problem: sequence_length is larger than max_position_embeddings.
+Fix: lower sequence length or use a model-supported RoPE/context extension.
+```
+
+7. RoPE scaling mismatch:
+
+```text
+Problem: long-context config does not match the model recipe.
+Fix: verify rope_scaling and rope_theta before training.
+```
+
+8. Added special tokens not saved:
+
+```text
+Problem: tokenizer grows, but adapter export does not save embeddings.
+Fix: resize embeddings and save embed_tokens and often lm_head when needed.
+```
+
+9. Completion template mismatch:
+
+```text
+Problem: response_template is not found, so labels can become fully masked.
+Fix: make the template string exactly match formatted samples.
+```
+
+10. Packed examples without EOS:
+
+```text
+Problem: examples bleed into each other during packed SFT.
+Fix: append tokenizer.eos_token to every formatted sample before packing.
+```
+
+11. Pad token trained as a label:
+
+```text
+Problem: labels contain pad_token_id.
+Fix: mask padding labels to -100.
+```
+
+12. Training config accidentally in inference mode:
+
+```text
+Problem: inference_mode=True prevents adapter training.
+Fix: create a training LoRA config with inference_mode=False.
+```
+
+Example command:
+
+```bash
+peft-doctor check \
+  --model meta-llama/Llama-3-8B \
+  --dataset train.jsonl \
+  --eval-dataset eval.jsonl \
+  --load-in-4bit \
+  --device-map auto \
+  --world-size 2 \
+  --torch-compile \
+  --packing \
+  --response-template "### Response:" \
+  --gradient-checkpointing-use-reentrant \
+  --optim adamw_torch
 ```

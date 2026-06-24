@@ -123,3 +123,20 @@ The training argument checker warns about:
 - QLoRA runs without a paged or 8-bit optimizer
 - dataloader workers set to zero
 - `max_steps` overriding `num_train_epochs`
+
+## Advanced Distributed And Export Checks
+
+PEFT Doctor now also warns about:
+
+- `device_map="auto"` with DDP, Accelerate multi-process, or torchrun
+- FSDP plus 4-bit or 8-bit quantized loading
+- DeepSpeed ZeRO plus QLoRA recipes that need version-specific setup
+- `torch_compile` with k-bit loading
+- `torch_compile` with gradient checkpointing
+- reentrant gradient checkpointing with QLoRA
+- sequence length larger than the model context window
+- RoPE scaling that should match the base model recipe
+- tokenizer growth without `modules_to_save` for embeddings or `lm_head`
+- LoRA target modules that accidentally include `lm_head` or embedding layers
+- `inference_mode=True` in a training config
+- `init_lora_weights=False` for a fresh adapter

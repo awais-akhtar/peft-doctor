@@ -62,3 +62,34 @@ def test_dataset_detects_long_rows_and_missing_assistant():
 
     assert any(issue.code == "dataset.long_rows" for issue in report.issues)
     assert any(issue.code == "dataset.chat_missing_assistant" for issue in report.issues)
+
+
+class TemplateTokenizer:
+    eos_token = "</s>"
+    pad_token_id = 0
+
+
+def test_dataset_detects_advanced_collator_risks():
+    report = DiagnosisReport()
+    check_dataset(
+        report,
+        train_dataset=[
+            {"text": "short", "input_ids": [1, 2, 0], "labels": [1, 2, 0]},
+            {"text": "� <html> lorem ipsum " + ("long " * 100)},
+        ],
+        tokenizer=TemplateTokenizer(),
+        training_args={
+            "packing": True,
+            "response_template": "### Response:",
+            "group_by_length": False,
+        },
+        sequence_length=2048,
+    )
+
+    codes = {issue.code for issue in report.issues}
+    assert "dataset.pad_token_in_labels" in codes
+    assert "dataset.response_template_missing" in codes
+    assert "dataset.packing_without_eos" in codes
+    assert "dataset.length_variance_high" in codes
+    assert "dataset.bad_text_artifacts" in codes
+    assert "dataset.too_small" in codes

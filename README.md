@@ -32,6 +32,15 @@ Developers often find this package while trying to fix one of these PEFT fine-tu
 - too many or zero trainable parameters after applying LoRA
 - missing warmup, scheduler, seed, checkpoint retention, or QLoRA optimizer choices
 - slow long-context training that could use Flash Attention
+- `device_map="auto"` conflicts with DDP, Accelerate, or torchrun
+- DeepSpeed, FSDP, and QLoRA setup risks
+- `torch_compile` instability with k-bit loading or gradient checkpointing
+- sequence length larger than model context window or RoPE setup
+- completion-only response template mismatch
+- packed dataset examples without EOS separators
+- pad tokens left inside labels instead of being masked to `-100`
+- LoRA targeting `lm_head` or embedding layers by accident
+- `inference_mode=True` or disabled LoRA initialization in a training config
 
 ## Install
 
@@ -118,6 +127,8 @@ training_args = create_safe_training_args()
 | Data quality | Duplicate rows, split leakage, masked labels | Deduplicate, fix labels, separate train/eval |
 | Model state | `use_cache`, embeddings, trainable params | Disable cache, resize embeddings, verify LoRA trainables |
 | Trainer config | Missing warmup, seed, scheduler, checkpoint limit | Add stable defaults before long runs |
+| Distributed runs | DDP/FSDP/DeepSpeed/device map conflicts | Check launcher, quantization, and sharding settings |
+| Completion masking | Response template missing, pad labels, packing leaks | Fix collator templates, EOS, and label masks |
 
 ## Troubleshooting Recipes
 
@@ -129,9 +140,13 @@ For a longer problem-by-problem guide, see [docs/troubleshooting.md](docs/troubl
 peft-doctor check \
   --model meta-llama/Llama-3-8B \
   --dataset train.jsonl \
+  --eval-dataset eval.jsonl \
   --batch-size 4 \
   --sequence-length 4096 \
-  --learning-rate 2e-4
+  --learning-rate 2e-4 \
+  --packing \
+  --response-template "### Response:" \
+  --device-map auto
 ```
 
 If the report warns about memory, start with:

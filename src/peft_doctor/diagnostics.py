@@ -106,6 +106,16 @@ def _check_training_args(report: DiagnosisReport, training_args: Any = None, pef
     max_steps = coerce_int(first_value(training_args, ["max_steps"], None), None)
     load_in_4bit = bool_value(training_args, ["load_in_4bit"], False)
     load_in_8bit = bool_value(training_args, ["load_in_8bit"], False)
+    device_map = first_value(training_args, ["device_map"], None)
+    world_size = coerce_int(first_value(training_args, ["world_size"], None), None)
+    local_rank = coerce_int(first_value(training_args, ["local_rank"], None), None)
+    fsdp = first_value(training_args, ["fsdp"], None)
+    deepspeed = first_value(training_args, ["deepspeed"], None)
+    torch_compile = bool_value(training_args, ["torch_compile"], False)
+    gradient_checkpointing_kwargs = first_value(training_args, ["gradient_checkpointing_kwargs"], None)
+    remove_unused_columns = first_value(training_args, ["remove_unused_columns"], None)
+    packing = bool_value(training_args, ["packing"], False)
+    response_template = first_value(training_args, ["response_template", "completion_template"], None)
 
     is_lora = peft_config is not None or get_value(training_args, "peft_config") is not None
     if learning_rate is not None:
@@ -155,6 +165,28 @@ def _check_training_args(report: DiagnosisReport, training_args: Any = None, pef
             batch_size=batch_size,
         )
 
+    if batch_size and grad_accum:
+        effective_batch = batch_size * grad_accum
+        if effective_batch > 64:
+            report.add(
+                "training.effective_batch_large",
+                "Effective batch size is large",
+                "info",
+                "Large effective batches can require more warmup and may reduce adaptation on small datasets.",
+                "If the model underfits, lower batch size or gradient_accumulation_steps.",
+                effective_batch_size=effective_batch,
+            )
+        elif effective_batch == 1 and learning_rate and learning_rate >= 2e-4:
+            report.add(
+                "training.effective_batch_tiny",
+                "Effective batch size is tiny",
+                "info",
+                "Batch size 1 with a LoRA learning rate can be noisy.",
+                "Use gradient_accumulation_steps=4 or 8, or lower the learning rate if loss is unstable.",
+                effective_batch_size=effective_batch,
+                learning_rate=learning_rate,
+            )
+
     if grad_accum is None or grad_accum < 4:
         report.add(
             "training.grad_accum_low",
@@ -201,6 +233,69 @@ def _check_training_args(report: DiagnosisReport, training_args: Any = None, pef
             "warning",
             "fp16 can overflow more easily than bf16 on supported hardware.",
             "Try bf16=True on Ampere or newer NVIDIA GPUs.",
+        )
+
+    if torch_compile and (load_in_4bit or load_in_8bit):
+        report.add(
+            "training.torch_compile_quantized",
+            "torch_compile can be risky with k-bit training",
+            "warning",
+            "torch_compile is enabled while the plan uses 4-bit or 8-bit loading.",
+            "Disable torch_compile until the QLoRA run is stable; compile support varies by stack.",
+        )
+
+    if torch_compile and bool_value(training_args, ["gradient_checkpointing"], False):
+        report.add(
+            "training.torch_compile_checkpointing",
+            "torch_compile with checkpointing can be fragile",
+            "info",
+            "torch_compile and gradient checkpointing can interact badly on some models.",
+            "If training hangs or recompiles constantly, disable torch_compile first.",
+        )
+
+    if (load_in_4bit or load_in_8bit) and bool_value(training_args, ["gradient_checkpointing"], False):
+        use_reentrant = None
+        if isinstance(gradient_checkpointing_kwargs, dict):
+            use_reentrant = gradient_checkpointing_kwargs.get("use_reentrant")
+        if use_reentrant is not False:
+            report.add(
+                "training.reentrant_checkpointing",
+                "Checkpointing should usually use non-reentrant mode",
+                "info",
+                "QLoRA with gradient checkpointing is often more reliable with use_reentrant=False.",
+                "Set gradient_checkpointing_kwargs={'use_reentrant': False} when your Trainer supports it.",
+            )
+
+    distributed = (world_size and world_size > 1) or (local_rank is not None and local_rank >= 0)
+    if distributed and str(device_map).lower() == "auto":
+        report.add(
+            "training.device_map_auto_ddp",
+            "device_map='auto' is risky with distributed training",
+            "warning",
+            "device_map='auto' can conflict with DDP, Accelerate multi-process, or torchrun launches.",
+            "For distributed training, let each process own one GPU instead of using device_map='auto'.",
+            world_size=world_size,
+            local_rank=local_rank,
+        )
+
+    if fsdp and (load_in_4bit or load_in_8bit):
+        report.add(
+            "training.fsdp_quantized",
+            "FSDP with k-bit loading needs extra care",
+            "warning",
+            "FSDP plus 4-bit or 8-bit loading is a complicated setup and can fail with parameter wrapping.",
+            "Start with single-process QLoRA or use an FSDP recipe known to support quantized adapters.",
+            fsdp=fsdp,
+        )
+
+    if deepspeed and (load_in_4bit or load_in_8bit):
+        report.add(
+            "training.deepspeed_quantized",
+            "DeepSpeed with QLoRA needs version-specific setup",
+            "info",
+            "DeepSpeed ZeRO and k-bit loading can require careful optimizer and parameter placement settings.",
+            "Verify your DeepSpeed stage, bitsandbytes version, and PEFT recipe before long runs.",
+            deepspeed=deepspeed,
         )
 
     if (load_in_4bit or load_in_8bit) and optim:
@@ -280,6 +375,15 @@ def _check_training_args(report: DiagnosisReport, training_args: Any = None, pef
             num_train_epochs=epochs,
         )
 
+    if remove_unused_columns is True and (response_template or packing):
+        report.add(
+            "training.remove_unused_columns_risky",
+            "remove_unused_columns may drop fields needed by formatting",
+            "info",
+            "remove_unused_columns=True can remove columns before custom formatting or completion masking.",
+            "For SFT formatting functions, set remove_unused_columns=False if columns disappear.",
+        )
+
 
 def _parameter_counts(model: Any) -> tuple[int, int]:
     parameters = getattr(model, "parameters", None)
@@ -330,6 +434,33 @@ def _check_model_state(
         return
 
     config = get_value(model, "config") or model
+    max_positions = coerce_int(
+        first_value(config, ["max_position_embeddings", "n_positions", "seq_length"], None),
+        None,
+    )
+    rope_scaling = get_value(config, "rope_scaling")
+    rope_theta = get_value(config, "rope_theta")
+    if sequence_length and max_positions and sequence_length > max_positions and not rope_scaling:
+        report.add(
+            "model.sequence_exceeds_context",
+            "Sequence length exceeds model context",
+            "warning",
+            "The configured sequence length is larger than the model's known context window.",
+            "Use a shorter sequence length or configure a model-supported RoPE/context extension.",
+            sequence_length=sequence_length,
+            max_position_embeddings=max_positions,
+        )
+    elif sequence_length and rope_scaling:
+        report.add(
+            "model.rope_scaling_detected",
+            "RoPE scaling is configured",
+            "info",
+            "The model config exposes rope_scaling for extended context.",
+            "Verify the RoPE scaling method matches the base model recipe before long-context fine-tuning.",
+            rope_scaling=rope_scaling,
+            rope_theta=rope_theta,
+        )
+
     if bool_value(training_args, ["gradient_checkpointing"], False) and bool_value(config, ["use_cache"], False):
         report.add(
             "model.use_cache_with_checkpointing",
@@ -351,6 +482,16 @@ def _check_model_state(
             tokenizer_size=vocab_size,
             embedding_size=embedding_size,
         )
+        modules_to_save = [str(item) for item in as_list(get_value(peft_config, "modules_to_save"))]
+        if peft_config is not None and not {"embed_tokens", "lm_head"}.intersection(modules_to_save):
+            report.add(
+                "model.modules_to_save_missing_for_tokens",
+                "Special token embeddings may not be saved",
+                "warning",
+                "The tokenizer is larger than the model embeddings, but modules_to_save does not include embeddings.",
+                "After adding tokens, save `embed_tokens` and often `lm_head`, or resize before applying LoRA.",
+                modules_to_save=", ".join(modules_to_save) if modules_to_save else None,
+            )
 
     total_params, trainable_params = _parameter_counts(model)
     if total_params:
@@ -394,13 +535,22 @@ def _check_model_state(
         )
 
 
-def _check_peft_config(report: DiagnosisReport, peft_config: Any = None) -> None:
+def _check_peft_config(
+    report: DiagnosisReport,
+    peft_config: Any = None,
+    model: Any = None,
+    model_name: Optional[str] = None,
+) -> None:
     if peft_config is None:
         return
 
     r = coerce_int(get_value(peft_config, "r"), None)
     alpha = coerce_float(get_value(peft_config, "lora_alpha"), None)
     dropout = coerce_float(get_value(peft_config, "lora_dropout"), None)
+    task_type = get_value(peft_config, "task_type")
+    inference_mode = bool_value(peft_config, ["inference_mode"], False)
+    init_lora_weights = get_value(peft_config, "init_lora_weights")
+    target_modules = [str(item) for item in as_list(get_value(peft_config, "target_modules"))]
 
     if r is not None and r < 4:
         report.add(
@@ -452,6 +602,48 @@ def _check_peft_config(report: DiagnosisReport, peft_config: Any = None) -> None
             "High LoRA dropout can slow learning or cause underfitting.",
             "Try lora_dropout between 0.0 and 0.1 for many SFT runs.",
             lora_dropout=dropout,
+        )
+
+    risky_targets = sorted({"lm_head", "embed_tokens", "wte", "wpe"}.intersection(target_modules))
+    if risky_targets:
+        report.add(
+            "peft.risky_target_modules",
+            "Output or embedding modules are targeted",
+            "warning",
+            "LoRA target_modules includes embedding or output-head modules.",
+            "Only target these deliberately; most causal LM LoRA runs adapt attention and MLP projection layers.",
+            target_modules=", ".join(risky_targets),
+        )
+
+    family = infer_model_family(model=model, model_name=model_name)
+    if family in {"llama", "mistral", "mixtral", "qwen", "qwen2", "qwen3", "gemma", "phi", "deepseek", "gpt2", "gpt_neox", "falcon", "bloom"}:
+        if task_type and str(task_type) != "CAUSAL_LM":
+            report.add(
+                "peft.task_type_mismatch",
+                "PEFT task type may not match a causal LM",
+                "warning",
+                "The model family looks like a causal language model, but task_type is not CAUSAL_LM.",
+                "Use task_type='CAUSAL_LM' for normal decoder-only SFT and chat fine-tuning.",
+                task_type=task_type,
+                family=family,
+            )
+
+    if inference_mode:
+        report.add(
+            "peft.inference_mode_enabled",
+            "PEFT config is in inference mode",
+            "error",
+            "inference_mode=True prevents adapter training.",
+            "Set inference_mode=False or recreate the LoRA config for training.",
+        )
+
+    if init_lora_weights is False:
+        report.add(
+            "peft.init_lora_weights_false",
+            "LoRA weight initialization is disabled",
+            "warning",
+            "init_lora_weights=False can make training unstable unless you load existing adapter weights.",
+            "Leave init_lora_weights at the PEFT default for new adapters.",
         )
 
 
@@ -524,7 +716,7 @@ def diagnose_peft(
         peft_config=peft_config,
         sequence_length=sequence_length,
     )
-    _check_peft_config(report, peft_config=peft_config)
+    _check_peft_config(report, peft_config=peft_config, model=model, model_name=model_name)
     _check_training_args(report, training_args=training_args, peft_config=peft_config)
     check_dataset(
         report,
@@ -532,6 +724,7 @@ def diagnose_peft(
         dataset_path=dataset_path,
         eval_dataset=eval_dataset,
         tokenizer=tokenizer,
+        training_args=training_args,
         sequence_length=sequence_length,
     )
     _check_adapter_flow(report, peft_config=peft_config)
