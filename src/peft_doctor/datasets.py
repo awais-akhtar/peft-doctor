@@ -125,6 +125,37 @@ def _chat_has_assistant(row: Any) -> bool:
     return False
 
 
+def _messages(row: Any) -> list[dict[str, Any]]:
+    if not isinstance(row, dict):
+        return []
+    messages = row.get("messages") or row.get("conversations")
+    if not isinstance(messages, list):
+        return []
+    return [message for message in messages if isinstance(message, dict)]
+
+
+def _assistant_messages(row: Any) -> list[dict[str, Any]]:
+    return [
+        message
+        for message in _messages(row)
+        if str(message.get("role", "")).lower() == "assistant"
+    ]
+
+
+def _has_tool_calls(row: Any) -> bool:
+    return any(message.get("tool_calls") for message in _messages(row))
+
+
+def _has_tool_role(row: Any) -> bool:
+    return any(str(message.get("role", "")).lower() == "tool" for message in _messages(row))
+
+
+def _has_vision_columns(row: Any) -> bool:
+    if not isinstance(row, dict):
+        return False
+    return any(column in row for column in ["image", "images", "image_path", "image_url", "video"])
+
+
 def _labels(row: Any) -> list[Any]:
     if not isinstance(row, dict):
         return []
@@ -305,6 +336,68 @@ def check_dataset(
             first_index=chat_without_assistant[0],
         )
 
+    empty_assistant = [
+        index
+        for index, row in enumerate(rows)
+        if any(not str(message.get("content", "")).strip() for message in _assistant_messages(row))
+    ]
+    if empty_assistant:
+        report.add(
+            "dataset.empty_assistant_messages",
+            "Assistant messages are empty",
+            "warning",
+            "Some chat rows contain assistant messages with empty content.",
+            "Remove or repair empty assistant replies; they teach the model to answer with blanks.",
+            count=len(empty_assistant),
+            first_index=empty_assistant[0],
+        )
+
+    allowed_roles = {"system", "user", "assistant", "tool"}
+    unknown_role_rows = [
+        index
+        for index, row in enumerate(rows)
+        if any(str(message.get("role", "")).lower() not in allowed_roles for message in _messages(row))
+    ]
+    if unknown_role_rows:
+        report.add(
+            "dataset.unknown_chat_roles",
+            "Unknown chat roles found",
+            "warning",
+            "Some chat messages use roles outside system, user, assistant, or tool.",
+            "Normalize chat roles before applying the tokenizer chat template.",
+            count=len(unknown_role_rows),
+            first_index=unknown_role_rows[0],
+        )
+
+    tool_call_rows = [index for index, row in enumerate(rows) if _has_tool_calls(row) or _has_tool_role(row)]
+    tool_schema_rows = [
+        index
+        for index, row in enumerate(rows)
+        if isinstance(row, dict) and ("tools" in row or "tool_schema" in row)
+    ]
+    if tool_call_rows and not tool_schema_rows:
+        report.add(
+            "dataset.tool_calls_missing_tools",
+            "Tool-call data may be missing tool schemas",
+            "info",
+            "Some rows look like tool-calling conversations, but no tools/tool_schema column was found.",
+            "Keep tool schemas with the sample or pre-render tool calls into plain text before training.",
+            count=len(tool_call_rows),
+            first_index=tool_call_rows[0],
+        )
+
+    vision_rows = [index for index, row in enumerate(rows) if _has_vision_columns(row)]
+    if vision_rows:
+        report.add(
+            "dataset.vision_columns_detected",
+            "Vision columns detected",
+            "info",
+            "Some rows include image or video fields.",
+            "Use a VLM processor/collator and verify image tokens are preserved before PEFT training.",
+            count=len(vision_rows),
+            first_index=vision_rows[0],
+        )
+
     all_ignored = [
         index
         for index, row in enumerate(rows)
@@ -454,6 +547,55 @@ def check_dataset(
     instruction_columns = sum(1 for row in rows if has_instruction_response_columns(row))
     pretokenized = sum(1 for row in rows if has_pretokenized_columns(row))
     marker_count = sum(1 for row in rows if has_instruction_markers(_row_text(row)))
+    assistant_only_loss = bool_value(training_args, ["assistant_only_loss"], False)
+    completion_only_loss = bool_value(
+        training_args,
+        ["completion_only_loss", "train_on_responses_only"],
+        False,
+    )
+
+    if chat_count and instruction_columns:
+        report.add(
+            "dataset.mixed_prompt_schemas",
+            "Mixed chat and instruction schemas found",
+            "info",
+            "The sampled data mixes chat messages with instruction/response columns.",
+            "Choose one formatting path before tokenization so label masking is predictable.",
+            chat_rows=chat_count,
+            instruction_rows=instruction_columns,
+        )
+
+    multi_turn_rows = [
+        index for index, row in enumerate(rows) if len(_assistant_messages(row)) > 1
+    ]
+    if multi_turn_rows and not assistant_only_loss:
+        report.add(
+            "dataset.multi_turn_without_assistant_loss",
+            "Multi-turn chat may train on non-assistant tokens",
+            "info",
+            "Some rows contain multiple assistant turns, but assistant_only_loss is not enabled.",
+            "For chat SFT, mask loss to assistant spans when your chat template supports it.",
+            count=len(multi_turn_rows),
+            first_index=multi_turn_rows[0],
+        )
+
+    if assistant_only_loss and not chat_count:
+        report.add(
+            "dataset.assistant_loss_without_chat",
+            "assistant_only_loss is enabled without chat rows",
+            "warning",
+            "assistant_only_loss expects chat messages rendered by a compatible chat template.",
+            "Use chat `messages` rows, or switch to completion_only_loss with a response template.",
+        )
+
+    if completion_only_loss and not (instruction_columns or marker_count or response_template):
+        report.add(
+            "dataset.completion_loss_without_template",
+            "Completion-only loss cannot find prompt/completion structure",
+            "warning",
+            "completion_only_loss is enabled, but the sampled rows do not expose a clear response boundary.",
+            "Use prompt/completion columns or pass the exact response_template used in formatted text.",
+        )
 
     if chat_count:
         chat_template = get_value(tokenizer, "chat_template")
@@ -509,7 +651,12 @@ def check_dataset(
         )
 
 
-def check_tokenizer(report: DiagnosisReport, tokenizer: Any = None) -> None:
+def check_tokenizer(
+    report: DiagnosisReport,
+    tokenizer: Any = None,
+    training_args: Any = None,
+    model_name: Optional[str] = None,
+) -> None:
     if tokenizer is None:
         report.add(
             "tokenizer.not_provided",
@@ -522,6 +669,14 @@ def check_tokenizer(report: DiagnosisReport, tokenizer: Any = None) -> None:
     pad_token = get_value(tokenizer, "pad_token")
     eos_token = get_value(tokenizer, "eos_token")
     padding_side = get_value(tokenizer, "padding_side")
+    chat_template = get_value(tokenizer, "chat_template")
+    assistant_only_loss = bool_value(training_args, ["assistant_only_loss"], False)
+    completion_only_loss = bool_value(
+        training_args,
+        ["completion_only_loss", "train_on_responses_only"],
+        False,
+    )
+    packing = bool_value(training_args, ["packing"], False)
     if pad_token is None:
         report.add(
             "tokenizer.pad_token_missing",
@@ -548,6 +703,26 @@ def check_tokenizer(report: DiagnosisReport, tokenizer: Any = None) -> None:
             "Set or verify `tokenizer.eos_token`; missing EOS tokens can cause runaway generation.",
         )
 
+    if pad_token is not None and eos_token is not None and pad_token == eos_token and (
+        completion_only_loss or assistant_only_loss
+    ):
+        report.add(
+            "tokenizer.pad_equals_eos_loss_masking",
+            "pad_token equals eos_token while response loss masking is used",
+            "warning",
+            "Some collators mask labels by pad_token_id; if pad and EOS share an id, EOS labels can be masked too.",
+            "Verify your collator masks only padding positions, or use a dedicated pad token when needed.",
+        )
+
+    if assistant_only_loss and chat_template and "{% generation" not in str(chat_template):
+        report.add(
+            "tokenizer.chat_template_no_generation_block",
+            "Chat template may not support assistant-only loss",
+            "warning",
+            "assistant_only_loss usually needs a chat template with generation blocks.",
+            "Use a chat template that marks assistant spans, or choose completion_only_loss with a response template.",
+        )
+
     if padding_side == "left":
         report.add(
             "tokenizer.left_padding_training",
@@ -556,6 +731,26 @@ def check_tokenizer(report: DiagnosisReport, tokenizer: Any = None) -> None:
             "Left padding is common for generation, but right padding is usually simpler for causal LM training.",
             "For SFT training, consider `tokenizer.padding_side = 'right'` unless your collator requires left padding.",
         )
+
+    if padding_side == "left" and packing:
+        report.add(
+            "tokenizer.left_padding_with_packing",
+            "Left padding is awkward with packed training",
+            "info",
+            "Packing works best with right-padded or unpadded formatted text.",
+            "Use right padding during SFT packing unless your collator specifically supports left padding.",
+        )
+
+    if model_name and "qwen" in model_name.lower() and "instruct" in model_name.lower():
+        if eos_token is not None and eos_token != "<|im_end|>":
+            report.add(
+                "tokenizer.qwen_eos_review",
+                "Qwen instruct EOS token may need review",
+                "info",
+                "Qwen instruct SFT recipes often use <|im_end|> as the EOS token.",
+                "If generation does not stop cleanly, set eos_token='<|im_end|>' in the tokenizer/trainer setup.",
+                eos_token=eos_token,
+            )
 
     model_max_length = get_value(tokenizer, "model_max_length")
     if isinstance(model_max_length, int) and model_max_length > 1_000_000:

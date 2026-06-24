@@ -18,6 +18,7 @@ from .diagnostics import diagnose_peft
 from .environment import diagnose_environment
 from .logs import scan_training_log
 from .notebooks import scan_notebook
+from .recipes import RECIPE_NAMES, create_training_recipe
 from .report import DiagnosisReport, DiagnosticIssue
 from .targets import infer_model_family, recommend_target_modules
 
@@ -108,6 +109,12 @@ def _print_report(report: DiagnosisReport, output: str) -> None:
     )
 
 
+def _python_literal(value: object) -> str:
+    if value in {"bnb_config", "torch.bfloat16", "torch.float16", "torch.float32", None}:
+        return str(value)
+    return repr(value)
+
+
 @app.command()
 def check(
     model: Optional[str] = typer.Option(None, "--model", "-m", help="Hugging Face model id or local model path."),
@@ -136,11 +143,17 @@ def check(
     packing: bool = typer.Option(False, "--packing", help="Tell the checker dataset packing is enabled."),
     group_by_length: bool = typer.Option(False, "--group-by-length", help="Tell the checker length grouping is enabled."),
     response_template: Optional[str] = typer.Option(None, "--response-template", help="Completion-only response template string."),
+    completion_only_loss: bool = typer.Option(False, "--completion-only-loss", help="Tell the checker completion-only loss is enabled."),
+    assistant_only_loss: bool = typer.Option(False, "--assistant-only-loss", help="Tell the checker assistant-only loss is enabled."),
     remove_unused_columns: Optional[bool] = typer.Option(None, "--remove-unused-columns/--keep-unused-columns", help="Trainer remove_unused_columns setting."),
     gradient_checkpointing_use_reentrant: Optional[bool] = typer.Option(None, "--gradient-checkpointing-use-reentrant/--gradient-checkpointing-non-reentrant", help="Gradient checkpointing use_reentrant setting."),
     load_in_4bit: bool = typer.Option(False, "--load-in-4bit", help="Tell the checker the model will use 4-bit loading."),
+    load_in_8bit: bool = typer.Option(False, "--load-in-8bit", help="Tell the checker the model will use 8-bit loading."),
     bf16: bool = typer.Option(True, "--bf16/--no-bf16", help="Tell the checker whether bf16 is enabled."),
     fp16: bool = typer.Option(False, "--fp16/--no-fp16", help="Tell the checker whether fp16 is enabled."),
+    attn_implementation: Optional[str] = typer.Option(None, "--attn-implementation", help="Attention implementation, such as flash_attention_2, sdpa, or eager."),
+    ddp_find_unused_parameters: Optional[bool] = typer.Option(None, "--ddp-find-unused-parameters/--ddp-no-find-unused-parameters", help="Distributed DDP find_unused_parameters setting."),
+    logging_steps: Optional[int] = typer.Option(None, "--logging-steps", help="Trainer logging_steps value."),
     gradient_checkpointing: bool = typer.Option(
         True,
         "--gradient-checkpointing/--no-gradient-checkpointing",
@@ -163,6 +176,7 @@ def check(
         "bf16": bf16,
         "gradient_checkpointing": gradient_checkpointing,
         "load_in_4bit": load_in_4bit,
+        "load_in_8bit": load_in_8bit,
         "fp16": fp16,
     }
     if eval_batch_size is not None:
@@ -203,12 +217,22 @@ def check(
         training_args["group_by_length"] = group_by_length
     if response_template is not None:
         training_args["response_template"] = response_template
+    if completion_only_loss:
+        training_args["completion_only_loss"] = completion_only_loss
+    if assistant_only_loss:
+        training_args["assistant_only_loss"] = assistant_only_loss
     if remove_unused_columns is not None:
         training_args["remove_unused_columns"] = remove_unused_columns
     if gradient_checkpointing_use_reentrant is not None:
         training_args["gradient_checkpointing_kwargs"] = {
             "use_reentrant": gradient_checkpointing_use_reentrant
         }
+    if attn_implementation is not None:
+        training_args["attn_implementation"] = attn_implementation
+    if ddp_find_unused_parameters is not None:
+        training_args["ddp_find_unused_parameters"] = ddp_find_unused_parameters
+    if logging_steps is not None:
+        training_args["logging_steps"] = logging_steps
 
     family = infer_model_family(config, model_name=model)
     peft_config = create_safe_lora_config(model=config, model_name=model, model_family=family, as_dict=True)
@@ -225,6 +249,79 @@ def check(
     )
     report.extend(metadata_issues)
     _print_report(report, output)
+
+
+def _print_recipe(recipe_data: dict[str, object], output: str) -> None:
+    if output == "json":
+        console.print_json(json.dumps(recipe_data, indent=2))
+        return
+    if output == "markdown":
+        console.print(f"# {recipe_data['recipe']}")
+        console.print()
+        console.print(str(recipe_data.get("description", "")))
+        console.print()
+        for key in ["install", "commands", "checks", "notes"]:
+            value = recipe_data.get(key)
+            if not value:
+                continue
+            console.print(f"## {key.replace('_', ' ').title()}")
+            if isinstance(value, list):
+                for item in value:
+                    console.print(f"- `{item}`" if key == "commands" else f"- {item}", markup=False)
+            else:
+                console.print(f"`{value}`", markup=False)
+            console.print()
+        return
+
+    console.print("# Generated by peft-doctor recipe")
+    console.print(f"# Recipe: {recipe_data['recipe']}")
+    if "install" in recipe_data:
+        console.print(f"# Install: {recipe_data['install']}", markup=False)
+    if "commands" in recipe_data:
+        for command in recipe_data["commands"]:  # type: ignore[index]
+            console.print(f"# {command}")
+        return
+
+    console.print("from peft import LoraConfig")
+    console.print("from transformers import BitsAndBytesConfig")
+    console.print("import torch")
+    console.print()
+    console.print("model_kwargs = {")
+    for key, value in dict(recipe_data["model_kwargs"]).items():  # type: ignore[arg-type]
+        console.print(f"    {key!r}: {_python_literal(value)},")
+    console.print("}")
+    console.print()
+    console.print("peft_config = LoraConfig(")
+    for key, value in dict(recipe_data["lora_config"]).items():  # type: ignore[arg-type]
+        console.print(f"    {key}={value!r},")
+    console.print(")")
+    console.print()
+    console.print("bnb_config = BitsAndBytesConfig(")
+    bnb_config = dict(recipe_data["bnb_config"])  # type: ignore[arg-type]
+    for key, value in bnb_config.items():
+        if key == "bnb_4bit_compute_dtype":
+            console.print("    bnb_4bit_compute_dtype=torch.bfloat16,")
+        else:
+            console.print(f"    {key}={value!r},")
+    console.print(")")
+    console.print()
+    console.print("training_args = {")
+    for key, value in dict(recipe_data["training_args"]).items():  # type: ignore[arg-type]
+        console.print(f"    {key!r}: {value!r},")
+    console.print("}")
+
+
+@app.command("recipe")
+def recipe_command(
+    kind: str = typer.Option("qlora-sft", "--kind", "-k", help=f"Recipe name: {', '.join(RECIPE_NAMES)}."),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="Model id used to infer the family."),
+    family: Optional[str] = typer.Option(None, "--family", "-f", help="Known family, for example llama, qwen, or mistral."),
+    output: str = typer.Option("python", "--output", "-o", help="Output format: python, json, or markdown."),
+) -> None:
+    """Generate a practical PEFT/QLoRA fine-tuning recipe."""
+
+    recipe_data = create_training_recipe(kind=kind, model_name=model, model_family=family)
+    _print_recipe(recipe_data, output)
 
 
 @app.command()
@@ -298,7 +395,7 @@ def scan_log(
     log_file: Path = typer.Argument(..., help="Trainer log file, JSONL log, or text log."),
     output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
 ) -> None:
-    """Scan a training log for NaN, infinity, OOM, overflow, and unstable loss jumps."""
+    """Scan a training log for loss, runtime, device, disk, and shape failures."""
 
     report = DiagnosisReport(metadata={"log_file": str(log_file)})
     report.extend(scan_training_log(log_file))
@@ -457,11 +554,17 @@ def colab() -> None:
 # from huggingface_hub import login
 # login(token=userdata.get("HF_TOKEN"))
 
-from peft_doctor import diagnose_peft, create_safe_lora_config, create_safe_bnb_config
+from peft_doctor import (
+    diagnose_peft,
+    create_safe_lora_config,
+    create_safe_bnb_config,
+    create_training_recipe,
+)
 
 model_name = "meta-llama/Llama-3-8B"
 peft_config = create_safe_lora_config(model_name=model_name)
 bnb_config = create_safe_bnb_config()
+recipe = create_training_recipe(kind="low-vram-colab", model_name=model_name)
 
 # After you create model, tokenizer, train_dataset, and training_args:
 # report = diagnose_peft(

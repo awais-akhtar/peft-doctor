@@ -37,10 +37,24 @@ class NoEosLeftPadTokenizer:
         return 12
 
 
+class ChatTemplateTokenizer:
+    pad_token = "<|endoftext|>"
+    eos_token = "<|endoftext|>"
+    pad_token_id = 0
+    padding_side = "left"
+    model_max_length = 4096
+    chat_template = "{{ messages }}"
+
+    def __len__(self):
+        return 100
+
+
 class Config:
     model_type = "llama"
     use_cache = True
     max_position_embeddings = 1024
+    sliding_window = 512
+    num_experts = 8
 
 
 class Weight:
@@ -90,15 +104,23 @@ def test_diagnose_peft_advanced_checks():
             "gradient_checkpointing": True,
             "gradient_checkpointing_kwargs": {"use_reentrant": True},
             "load_in_4bit": True,
+            "load_in_8bit": True,
             "save_steps": 100,
             "dataloader_num_workers": 0,
             "max_steps": 10,
             "num_train_epochs": 3,
+            "bf16": True,
+            "fp16": True,
             "device_map": "auto",
             "world_size": 2,
             "fsdp": "full_shard",
             "deepspeed": "ds_config.json",
             "torch_compile": True,
+            "attn_implementation": "flash_attention_2",
+            "ddp_find_unused_parameters": True,
+            "completion_only_loss": True,
+            "assistant_only_loss": True,
+            "logging_steps": 500,
             "packing": True,
             "response_template": "### Response:",
             "remove_unused_columns": True,
@@ -113,6 +135,8 @@ def test_diagnose_peft_advanced_checks():
     assert "tokenizer.left_padding_training" in codes
     assert "model.use_cache_with_checkpointing" in codes
     assert "model.sequence_exceeds_context" in codes
+    assert "model.sliding_window_attention" in codes
+    assert "model.moe_target_parameters_missing" in codes
     assert "model.embedding_resize_needed" in codes
     assert "model.modules_to_save_missing_for_tokens" in codes
     assert "model.no_trainable_params" in codes
@@ -122,14 +146,21 @@ def test_diagnose_peft_advanced_checks():
     assert "peft.inference_mode_enabled" in codes
     assert "peft.init_lora_weights_false" in codes
     assert "peft.rank_high" in codes
+    assert "peft.rslora_hint" in codes
+    assert "peft.loftq_hint" in codes
+    assert "peft.qlora_all_linear_hint" in codes
+    assert "peft.ensure_weight_tying_missing" in codes
     assert "peft.alpha_low" in codes
     assert "peft.dropout_high" in codes
+    assert "training.quantization_flags_conflict" in codes
+    assert "training.precision_flags_conflict" in codes
     assert "training.effective_batch_tiny" in codes
     assert "training.optimizer_missing" in codes
     assert "training.torch_compile_quantized" in codes
     assert "training.torch_compile_checkpointing" in codes
     assert "training.reentrant_checkpointing" in codes
     assert "training.device_map_auto_ddp" in codes
+    assert "training.ddp_unused_parameters_risky" in codes
     assert "training.fsdp_quantized" in codes
     assert "training.deepspeed_quantized" in codes
     assert "training.warmup_missing" in codes
@@ -139,3 +170,35 @@ def test_diagnose_peft_advanced_checks():
     assert "training.dataloader_workers_zero" in codes
     assert "training.max_steps_overrides_epochs" in codes
     assert "training.remove_unused_columns_risky" in codes
+    assert "training.loss_modes_mixed" in codes
+    assert "training.logging_steps_high" in codes
+
+
+def test_diagnose_peft_tokenizer_masking_checks():
+    report = diagnose_peft(
+        tokenizer=ChatTemplateTokenizer(),
+        peft_config={"target_modules": ["all-linear"], "task_type": "CAUSAL_LM"},
+        training_args={
+            "assistant_only_loss": True,
+            "completion_only_loss": True,
+            "packing": True,
+            "gradient_checkpointing": True,
+            "learning_rate": 2e-4,
+        },
+        train_dataset=[
+            {
+                "messages": [
+                    {"role": "user", "content": "hello"},
+                    {"role": "assistant", "content": "hi"},
+                ]
+            }
+        ],
+        model_name="Qwen/Qwen2.5-7B-Instruct",
+    )
+
+    codes = {issue.code for issue in report.issues}
+    assert "targets.all_linear" in codes
+    assert "tokenizer.pad_equals_eos_loss_masking" in codes
+    assert "tokenizer.chat_template_no_generation_block" in codes
+    assert "tokenizer.left_padding_with_packing" in codes
+    assert "tokenizer.qwen_eos_review" in codes

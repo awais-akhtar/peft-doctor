@@ -11,6 +11,7 @@ from typing import Any, Iterable, Optional, Union
 from .report import DiagnosticIssue
 
 LOSS_RE = re.compile(r"(?:loss|train_loss)\s*[=:]\s*([-+a-zA-Z0-9.]+)")
+GRAD_NORM_RE = re.compile(r"(?:grad_norm|gradient_norm)\s*[=:]\s*([-+a-zA-Z0-9.]+)")
 
 
 def _parse_loss_token(value: Any) -> Optional[float]:
@@ -46,6 +47,9 @@ def _record_from_line(line: str) -> dict[str, Any]:
     match = LOSS_RE.search(stripped)
     if match:
         record["loss"] = match.group(1)
+    grad_match = GRAD_NORM_RE.search(stripped)
+    if grad_match:
+        record["grad_norm"] = grad_match.group(1)
     return record
 
 
@@ -88,6 +92,61 @@ def scan_training_log(
                 )
             )
 
+        if "no space left on device" in lowered or "disk quota exceeded" in lowered:
+            issues.append(
+                DiagnosticIssue(
+                    code="log.disk_full",
+                    title="Disk is full during training",
+                    severity="error",
+                    message="The log shows a disk-full or quota error.",
+                    fix="Reduce checkpoint frequency, set save_total_limit=2, or write outputs to a larger disk.",
+                )
+            )
+
+        if "illegal memory access" in lowered:
+            issues.append(
+                DiagnosticIssue(
+                    code="log.cuda_illegal_memory",
+                    title="CUDA illegal memory access found",
+                    severity="error",
+                    message="The log contains a CUDA illegal memory access error.",
+                    fix="Restart the runtime, disable torch_compile first, then reduce batch size or sequence length.",
+                )
+            )
+
+        if "expected all tensors to be on the same device" in lowered:
+            issues.append(
+                DiagnosticIssue(
+                    code="log.device_mismatch",
+                    title="Tensor device mismatch found",
+                    severity="error",
+                    message="The log shows tensors split across different devices.",
+                    fix="Check device_map, DDP launch settings, and make sure labels/batches move to the model device.",
+                )
+            )
+
+        if "mat1 and mat2 shapes cannot be multiplied" in lowered or "size mismatch" in lowered:
+            issues.append(
+                DiagnosticIssue(
+                    code="log.shape_mismatch",
+                    title="Shape mismatch found",
+                    severity="error",
+                    message="The log contains a tensor shape mismatch.",
+                    fix="Check tokenizer/model embedding resize, LoRA target modules, and label/input length alignment.",
+                )
+            )
+
+        if "token indices sequence length is longer than" in lowered:
+            issues.append(
+                DiagnosticIssue(
+                    code="log.sequence_too_long",
+                    title="Sequence length exceeds model limit",
+                    severity="warning",
+                    message="The log indicates tokenized inputs are longer than the model limit.",
+                    fix="Set truncation=True, lower max_seq_length, or use a model-supported context extension.",
+                )
+            )
+
         issues.extend(guard.update(record))
 
     if not issues:
@@ -96,7 +155,7 @@ def scan_training_log(
                 code="log.clean",
                 title="No obvious loss failures found",
                 severity="ok",
-                message="The scanned log did not contain NaN, infinity, CUDA OOM, or obvious loss jumps.",
+                message="The scanned log did not contain NaN, infinity, CUDA OOM, device, disk, shape, or obvious loss-jump failures.",
             )
         )
     return issues
@@ -113,6 +172,32 @@ class NanLossGuard:
         issues: list[DiagnosticIssue] = []
         raw_loss = logs.get("loss", logs.get("train_loss"))
         loss = _parse_loss_token(raw_loss)
+        raw_grad_norm = logs.get("grad_norm", logs.get("gradient_norm"))
+        grad_norm = _parse_loss_token(raw_grad_norm)
+        if grad_norm is not None:
+            if math.isnan(grad_norm) or math.isinf(grad_norm):
+                issues.append(
+                    DiagnosticIssue(
+                        code="grad_norm.invalid",
+                        title="Invalid gradient norm detected",
+                        severity="error",
+                        message="A training log reported NaN or infinite gradient norm.",
+                        fix="Lower the learning rate, enable max_grad_norm=1.0, and inspect recent batches.",
+                        details={"grad_norm": str(raw_grad_norm)},
+                    )
+                )
+            elif grad_norm > 100:
+                issues.append(
+                    DiagnosticIssue(
+                        code="grad_norm.spike",
+                        title="Gradient norm is very high",
+                        severity="warning",
+                        message=f"A training log reported grad_norm={grad_norm:.4g}.",
+                        fix="Use gradient clipping, lower LR, and check for corrupted or extremely long samples.",
+                        details={"grad_norm": grad_norm},
+                    )
+                )
+
         if loss is None:
             return issues
 

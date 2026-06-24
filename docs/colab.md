@@ -28,12 +28,18 @@ login(token=userdata.get("HF_TOKEN"))
 ## Pre-Flight Cell
 
 ```python
-from peft_doctor import diagnose_peft, create_safe_lora_config, create_safe_bnb_config
+from peft_doctor import (
+    diagnose_peft,
+    create_safe_lora_config,
+    create_safe_bnb_config,
+    create_training_recipe,
+)
 
 model_name = "meta-llama/Llama-3-8B"
 
 peft_config = create_safe_lora_config(model_name=model_name)
 bnb_config = create_safe_bnb_config()
+recipe = create_training_recipe(kind="low-vram-colab", model_name=model_name)
 
 training_args = {
     "per_device_train_batch_size": 1,
@@ -102,4 +108,10 @@ You can print the setup snippet from the terminal or a notebook shell cell:
 
 ```python
 !peft-doctor colab
+```
+
+Print a low-VRAM recipe directly in Colab:
+
+```python
+!peft-doctor recipe --kind low-vram-colab --family llama --output markdown
 ```

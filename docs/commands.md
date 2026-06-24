@@ -20,6 +20,7 @@ In Colab:
 peft-doctor check
 peft-doctor targets
 peft-doctor safe-config
+peft-doctor recipe
 peft-doctor inspect-dataset
 peft-doctor scan-log
 peft-doctor scan-notebook
@@ -76,7 +77,11 @@ peft-doctor check \
   --deepspeed ds_config.json \
   --torch-compile \
   --packing \
+  --completion-only-loss \
+  --assistant-only-loss \
   --response-template "### Response:" \
+  --attn-implementation flash_attention_2 \
+  --ddp-find-unused-parameters \
   --gradient-checkpointing-use-reentrant \
   --remove-unused-columns
 ```
@@ -117,6 +122,7 @@ Useful options:
 - `--sequence-length`: max sequence length
 - `--learning-rate`: training learning rate
 - `--load-in-4bit`: check as a QLoRA 4-bit run
+- `--load-in-8bit`: check as an 8-bit loaded run
 - `--bf16` / `--no-bf16`: whether bf16 is enabled
 - `--fp16` / `--no-fp16`: whether fp16 is enabled
 - `--gradient-checkpointing` / `--no-gradient-checkpointing`: checkpointing state
@@ -133,11 +139,16 @@ Useful options:
 - `--fsdp`: FSDP mode
 - `--deepspeed`: DeepSpeed config path or setting
 - `--torch-compile`: check torch compile risks
+- `--attn-implementation`: attention backend, such as `flash_attention_2`, `sdpa`, or `eager`
 - `--packing`: check packed dataset EOS risks
 - `--group-by-length`: tell the checker length grouping is enabled
+- `--completion-only-loss`: check prompt/completion masking behavior
+- `--assistant-only-loss`: check chat assistant-span masking behavior
 - `--response-template`: completion-only response marker
 - `--remove-unused-columns` / `--keep-unused-columns`: Trainer column behavior
 - `--gradient-checkpointing-use-reentrant` / `--gradient-checkpointing-non-reentrant`: checkpointing mode
+- `--ddp-find-unused-parameters` / `--ddp-no-find-unused-parameters`: DDP unused parameter behavior
+- `--logging-steps`: logging interval used to catch early loss failures
 
 ## `peft-doctor targets`
 
@@ -193,6 +204,62 @@ peft-doctor safe-config --family llama --output json
 
 Copy the output into a training script, then adjust rank, dropout, and target modules only after the first stable run.
 
+## `peft-doctor recipe`
+
+Use this when you want a complete starting point instead of separate config pieces.
+
+Basic QLoRA SFT:
+
+```bash
+peft-doctor recipe --kind qlora-sft --family llama
+```
+
+Low-VRAM Colab:
+
+```bash
+peft-doctor recipe --kind low-vram-colab --family qwen --output markdown
+```
+
+Completion-only prompt/response training:
+
+```bash
+peft-doctor recipe --kind completion-only --family mistral --output json
+```
+
+Long-context experiment:
+
+```bash
+peft-doctor recipe --kind long-context --family llama
+```
+
+Distributed QLoRA:
+
+```bash
+peft-doctor recipe --kind distributed-qlora --family qwen
+```
+
+MoE LoRA:
+
+```bash
+peft-doctor recipe --kind moe-lora --family deepseek
+```
+
+Adapter merge/export checklist:
+
+```bash
+peft-doctor recipe --kind adapter-merge --output markdown
+```
+
+Available recipes:
+
+- `qlora-sft`
+- `low-vram-colab`
+- `completion-only`
+- `long-context`
+- `distributed-qlora`
+- `moe-lora`
+- `adapter-merge`
+
 ## `peft-doctor inspect-dataset`
 
 Use this when the model is not learning, outputs repeated text, gives blank answers, or your prompt format may be wrong.
@@ -229,7 +296,7 @@ Good examples:
 
 ## `peft-doctor scan-log`
 
-Use this after or during training when loss looks broken.
+Use this after or during training when loss, runtime, or export logs look broken.
 
 ```bash
 peft-doctor scan-log trainer_state.jsonl
@@ -244,6 +311,12 @@ It detects:
 - CUDA out of memory
 - overflow messages
 - sudden loss jumps
+- invalid or spiking `grad_norm`
+- disk-full and quota errors
+- CUDA illegal memory access
+- tensor device mismatch
+- tensor shape mismatch
+- tokenized sequence length above the model limit
 
 Typical fixes:
 
@@ -411,6 +484,7 @@ The output includes:
 - environment check
 - optional Colab Secrets login pattern for `HF_TOKEN`
 - safe config helpers
+- `create_training_recipe(...)`
 - `diagnose_peft(...)` example
 
 ## `peft-doctor version`
@@ -452,11 +526,17 @@ print(report.to_markdown())
 Generate safe configs:
 
 ```python
-from peft_doctor import create_safe_lora_config, create_safe_bnb_config, create_safe_training_args
+from peft_doctor import (
+    create_safe_lora_config,
+    create_safe_bnb_config,
+    create_safe_training_args,
+    create_training_recipe,
+)
 
 peft_config = create_safe_lora_config(model_name="Qwen/Qwen2.5-7B")
 bnb_config = create_safe_bnb_config()
 training_args = create_safe_training_args()
+recipe = create_training_recipe(kind="qlora-sft", model_family="qwen")
 ```
 
 `create_safe_training_args()` includes conservative defaults for batch size, gradient accumulation, bf16, gradient checkpointing, warmup, cosine scheduler, gradient clipping, checkpoint retention, and seed.

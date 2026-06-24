@@ -76,16 +76,32 @@ def estimate_model_size_gb(model: Any) -> Optional[float]:
 
 
 def is_quantized(model: Any = None, peft_config: Any = None, training_args: Any = None) -> bool:
-    if bool_value(training_args, ["load_in_4bit", "load_in_8bit"], False):
+    if bool_value(training_args, ["load_in_4bit"], False) or bool_value(
+        training_args,
+        ["load_in_8bit"],
+        False,
+    ):
         return True
-    if bool_value(peft_config, ["load_in_4bit", "load_in_8bit"], False):
+    if bool_value(peft_config, ["load_in_4bit"], False) or bool_value(
+        peft_config,
+        ["load_in_8bit"],
+        False,
+    ):
         return True
-    if bool_value(model, ["is_loaded_in_4bit", "is_loaded_in_8bit"], False):
+    if bool_value(model, ["is_loaded_in_4bit"], False) or bool_value(
+        model,
+        ["is_loaded_in_8bit"],
+        False,
+    ):
         return True
 
     quant_config = get_value(model, "quantization_config") or get_value(get_value(model, "config"), "quantization_config")
     if quant_config is not None:
-        return bool_value(quant_config, ["load_in_4bit", "load_in_8bit"], True)
+        return bool_value(quant_config, ["load_in_4bit"], False) or bool_value(
+            quant_config,
+            ["load_in_8bit"],
+            False,
+        )
     return False
 
 

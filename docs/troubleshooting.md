@@ -342,7 +342,97 @@ peft-doctor check \
   --world-size 2 \
   --torch-compile \
   --packing \
+  --completion-only-loss \
+  --assistant-only-loss \
   --response-template "### Response:" \
+  --attn-implementation flash_attention_2 \
+  --ddp-find-unused-parameters \
   --gradient-checkpointing-use-reentrant \
   --optim adamw_torch
+```
+
+## Next-Level Problems PEFT Doctor Now Checks
+
+1. Completion-only loss without a response marker:
+
+```text
+Problem: completion_only_loss is enabled, but no response_template is configured.
+Fix: pass the exact marker used in formatted samples, such as "### Response:".
+```
+
+2. Assistant-only loss with the wrong chat template:
+
+```text
+Problem: assistant_only_loss needs assistant generation spans in the chat template.
+Fix: use a template with generation blocks, or use completion_only_loss with prompt/response text.
+```
+
+3. Pad token equals EOS during masked-loss training:
+
+```text
+Problem: a collator can accidentally mask EOS labels when pad_token_id equals eos_token_id.
+Fix: verify masking by position, or add a dedicated pad token when needed.
+```
+
+4. Qwen instruct generation does not stop:
+
+```text
+Problem: EOS does not match the instruct chat template.
+Fix: review the tokenizer EOS and use <|im_end|> when the recipe requires it.
+```
+
+5. Tool-call rows without tool schemas:
+
+```text
+Problem: tool-call examples lose meaning when tools/tool_schema is missing.
+Fix: keep tool schemas with rows or render tool calls into plain text.
+```
+
+6. Vision-language rows handled like text-only rows:
+
+```text
+Problem: image/video fields need a VLM processor and collator.
+Fix: verify image tokens are inserted before PEFT training.
+```
+
+7. MoE expert weights not targeted:
+
+```text
+Problem: some MoE expert weights are parameters, not ordinary modules.
+Fix: inspect parameter names and configure target_parameters.
+```
+
+8. High-rank LoRA instability:
+
+```text
+Problem: large ranks can be harder to stabilize.
+Fix: compare against use_rslora=True for r=64 or higher.
+```
+
+9. QLoRA quality needs a better initialization:
+
+```text
+Problem: default LoRA initialization may underperform for some 4-bit runs.
+Fix: compare a short run with init_lora_weights="loftq".
+```
+
+10. DoRA with QLoRA memory pressure:
+
+```text
+Problem: DoRA adds magnitude parameters.
+Fix: benchmark a short run before using DoRA in long k-bit training.
+```
+
+11. Runtime crash after training starts:
+
+```text
+Problem: logs show device mismatch, shape mismatch, disk full, illegal CUDA memory access, or grad_norm spikes.
+Fix: run peft-doctor scan-log run.log and apply the reported fix before restarting.
+```
+
+12. No ready baseline for a new project:
+
+```text
+Problem: too many config choices before the first stable run.
+Fix: start with peft-doctor recipe --kind qlora-sft, low-vram-colab, completion-only, long-context, distributed-qlora, or moe-lora.
 ```

@@ -1,4 +1,9 @@
-from peft_doctor import create_safe_bnb_config, create_safe_lora_config, create_safe_training_args
+from peft_doctor import (
+    create_safe_bnb_config,
+    create_safe_lora_config,
+    create_safe_training_args,
+    create_training_recipe,
+)
 
 
 def test_safe_lora_config_dict():
@@ -23,3 +28,16 @@ def test_safe_training_args():
     assert args["max_grad_norm"] == 1.0
     assert args["save_total_limit"] == 2
     assert args["seed"] == 42
+
+
+def test_training_recipe_completion_only():
+    recipe = create_training_recipe(kind="completion-only", model_family="llama")
+    assert recipe["recipe"] == "completion-only"
+    assert recipe["training_args"]["completion_only_loss"] is True
+    assert recipe["training_args"]["response_template"] == "### Response:"
+
+
+def test_training_recipe_adapter_merge():
+    recipe = create_training_recipe(kind="adapter-merge")
+    assert recipe["recipe"] == "adapter-merge"
+    assert any("adapter-check" in command for command in recipe["commands"])

@@ -93,3 +93,42 @@ def test_dataset_detects_advanced_collator_risks():
     assert "dataset.length_variance_high" in codes
     assert "dataset.bad_text_artifacts" in codes
     assert "dataset.too_small" in codes
+
+
+def test_dataset_detects_modern_sft_schema_risks():
+    report = DiagnosisReport()
+    check_dataset(
+        report,
+        train_dataset=[
+            {
+                "messages": [
+                    {"role": "user", "content": "Use a tool"},
+                    {"role": "assistant", "content": "", "tool_calls": [{"name": "search"}]},
+                    {"role": "critic", "content": "wrong role"},
+                    {"role": "assistant", "content": "final"},
+                ],
+                "image": "sample.png",
+            },
+            {"instruction": "Explain LoRA", "response": "LoRA adapts small matrices."},
+        ],
+        training_args={"completion_only_loss": True},
+    )
+
+    codes = {issue.code for issue in report.issues}
+    assert "dataset.empty_assistant_messages" in codes
+    assert "dataset.unknown_chat_roles" in codes
+    assert "dataset.tool_calls_missing_tools" in codes
+    assert "dataset.vision_columns_detected" in codes
+    assert "dataset.mixed_prompt_schemas" in codes
+    assert "dataset.multi_turn_without_assistant_loss" in codes
+
+
+def test_dataset_detects_loss_mode_mismatch():
+    report = DiagnosisReport()
+    check_dataset(
+        report,
+        train_dataset=[{"instruction": "Say hi", "response": "Hi"}],
+        training_args={"assistant_only_loss": True},
+    )
+
+    assert any(issue.code == "dataset.assistant_loss_without_chat" for issue in report.issues)

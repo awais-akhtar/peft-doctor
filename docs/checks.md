@@ -97,8 +97,18 @@ PEFT Doctor also checks for problems that make a run look successful while silen
 - train/eval overlap
 - empty or tiny response fields
 - chat rows without assistant replies
+- empty assistant messages
+- unknown chat roles
+- mixed chat and instruction schemas
+- assistant-only loss without chat rows
+- completion-only loss without a clear response boundary
+- tool-call rows without tool schemas
+- image or video rows that need VLM processors/collators
 - pre-tokenized labels that are all `-100`
 - `input_ids` and `labels` length mismatches
+- padding tokens left in labels
+- packed data without visible EOS separators
+- completion template strings missing from sampled text
 - text rows likely to exceed the configured sequence length
 
 ## Model State Checks
@@ -111,6 +121,8 @@ When a model object is available in Python, `diagnose_peft(...)` checks:
 - zero trainable parameters after applying PEFT
 - unusually high trainable ratio for adapter training
 - long-context runs that may benefit from Flash Attention
+- sequence length beyond a sliding attention window
+- MoE models that may need `target_parameters` for expert weights
 
 ## Trainer Config Checks
 
@@ -123,6 +135,12 @@ The training argument checker warns about:
 - QLoRA runs without a paged or 8-bit optimizer
 - dataloader workers set to zero
 - `max_steps` overriding `num_train_epochs`
+- both 4-bit and 8-bit loading enabled
+- both `bf16` and `fp16` enabled
+- DDP `find_unused_parameters` left enabled for LoRA
+- Flash Attention without bf16/fp16
+- missing or very sparse logging
+- completion-only loss without a response template
 
 ## Advanced Distributed And Export Checks
 
@@ -140,3 +158,20 @@ PEFT Doctor now also warns about:
 - LoRA target modules that accidentally include `lm_head` or embedding layers
 - `inference_mode=True` in a training config
 - `init_lora_weights=False` for a fresh adapter
+- `all-linear` target shortcut handling
+- rsLoRA, LoftQ, DoRA, and tied-weight export hints
+
+## Runtime Log Checks
+
+`peft-doctor scan-log` detects:
+
+- `loss=nan` or `loss=inf`
+- sudden loss jumps
+- overflow messages
+- CUDA out-of-memory
+- CUDA illegal memory access
+- disk-full or quota errors
+- tensor device mismatch
+- tensor shape mismatch
+- sequence length above the model limit
+- invalid or spiking gradient norms

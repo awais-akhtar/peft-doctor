@@ -22,6 +22,7 @@ def _check_target_modules(
     family = infer_model_family(model=model, model_name=model_name)
     recommended = recommend_target_modules(model=model, model_name=model_name, model_family=family)
     configured = as_list(get_value(peft_config, "target_modules"))
+    configured_text = {str(item).lower() for item in configured}
 
     if family:
         report.add(
@@ -40,7 +41,15 @@ def _check_target_modules(
             "Pass `model_family` to `recommend_target_modules` or inspect `model.named_modules()`.",
         )
 
-    if configured:
+    if configured_text.intersection({"all-linear", "all_linear"}):
+        report.add(
+            "targets.all_linear",
+            "PEFT all-linear target shortcut is configured",
+            "ok",
+            "target_modules uses PEFT's all-linear shortcut.",
+            "This is common for broad QLoRA adaptation; watch memory and overfitting on small datasets.",
+        )
+    elif configured:
         missing = missing_target_modules(model, configured)
         if missing:
             report.add(
@@ -116,8 +125,39 @@ def _check_training_args(report: DiagnosisReport, training_args: Any = None, pef
     remove_unused_columns = first_value(training_args, ["remove_unused_columns"], None)
     packing = bool_value(training_args, ["packing"], False)
     response_template = first_value(training_args, ["response_template", "completion_template"], None)
+    attn_implementation = first_value(training_args, ["attn_implementation"], None)
+    ddp_find_unused_parameters = first_value(training_args, ["ddp_find_unused_parameters"], None)
+    logging_steps = coerce_int(first_value(training_args, ["logging_steps"], None), None)
+    max_seq_length = coerce_int(
+        first_value(training_args, ["max_seq_length", "model_max_length", "block_size"], None),
+        None,
+    )
+    completion_only_loss = bool_value(
+        training_args,
+        ["completion_only_loss", "train_on_responses_only"],
+        False,
+    )
+    assistant_only_loss = bool_value(training_args, ["assistant_only_loss"], False)
 
     is_lora = peft_config is not None or get_value(training_args, "peft_config") is not None
+    if load_in_4bit and load_in_8bit:
+        report.add(
+            "training.quantization_flags_conflict",
+            "4-bit and 8-bit loading are both enabled",
+            "error",
+            "The training arguments indicate both load_in_4bit and load_in_8bit.",
+            "Choose one quantization mode. For QLoRA, use 4-bit NF4; for lighter compatibility, use 8-bit.",
+        )
+
+    if bool_value(training_args, ["bf16"], False) and bool_value(training_args, ["fp16"], False):
+        report.add(
+            "training.precision_flags_conflict",
+            "bf16 and fp16 are both enabled",
+            "warning",
+            "Both bf16 and fp16 appear to be enabled.",
+            "Use bf16 on supported NVIDIA GPUs, otherwise use fp16, but do not enable both.",
+        )
+
     if learning_rate is not None:
         if learning_rate > 1e-3:
             report.add(
@@ -235,6 +275,30 @@ def _check_training_args(report: DiagnosisReport, training_args: Any = None, pef
             "Try bf16=True on Ampere or newer NVIDIA GPUs.",
         )
 
+    if str(attn_implementation).lower() in {"flash_attention_2", "flash_attention_3"}:
+        if not (
+            bool_value(training_args, ["bf16"], False)
+            or bool_value(training_args, ["fp16"], False)
+        ):
+            report.add(
+                "training.flash_attention_dtype",
+                "Flash Attention usually needs half precision",
+                "warning",
+                "Flash Attention is configured, but neither bf16 nor fp16 is enabled.",
+                "Load the model in bf16 or fp16 when using Flash Attention, if your hardware supports it.",
+                attn_implementation=attn_implementation,
+            )
+    elif max_seq_length and max_seq_length >= 4096:
+        report.add(
+            "training.long_context_attention",
+            "Long-context attention backend is not explicit",
+            "info",
+            "The configured max sequence length is high, but attn_implementation was not set to a fast backend.",
+            "For supported GPUs, try attn_implementation='flash_attention_2'; otherwise use SDPA and smaller batches.",
+            max_seq_length=max_seq_length,
+            attn_implementation=attn_implementation,
+        )
+
     if torch_compile and (load_in_4bit or load_in_8bit):
         report.add(
             "training.torch_compile_quantized",
@@ -276,6 +340,16 @@ def _check_training_args(report: DiagnosisReport, training_args: Any = None, pef
             "For distributed training, let each process own one GPU instead of using device_map='auto'.",
             world_size=world_size,
             local_rank=local_rank,
+        )
+
+    if distributed and peft_config is not None and ddp_find_unused_parameters is not False:
+        report.add(
+            "training.ddp_unused_parameters_risky",
+            "DDP unused-parameter search may slow or break LoRA training",
+            "info",
+            "Distributed LoRA training often works better with ddp_find_unused_parameters=False.",
+            "Set ddp_find_unused_parameters=False unless your recipe specifically needs it.",
+            ddp_find_unused_parameters=ddp_find_unused_parameters,
         )
 
     if fsdp and (load_in_4bit or load_in_8bit):
@@ -384,6 +458,42 @@ def _check_training_args(report: DiagnosisReport, training_args: Any = None, pef
             "For SFT formatting functions, set remove_unused_columns=False if columns disappear.",
         )
 
+    if completion_only_loss and not response_template:
+        report.add(
+            "training.completion_loss_template_missing",
+            "Completion-only loss needs a response template",
+            "warning",
+            "completion_only_loss is enabled, but no response/completion template was provided.",
+            "Pass the exact response marker used in formatted samples, such as response_template='### Response:'.",
+        )
+
+    if assistant_only_loss and response_template:
+        report.add(
+            "training.loss_modes_mixed",
+            "Assistant-only and completion-template loss are both configured",
+            "info",
+            "assistant_only_loss and a response template usually represent two different masking strategies.",
+            "Use assistant_only_loss for chat templates with generation blocks, or completion_only_loss for prompt/completion text.",
+        )
+
+    if logging_steps is None:
+        report.add(
+            "training.logging_missing",
+            "logging_steps is not configured",
+            "info",
+            "Without frequent logs, NaN loss and loss spikes are harder to catch early.",
+            "Use logging_steps=10 for short runs or 20-50 for longer stable runs.",
+        )
+    elif logging_steps > 100:
+        report.add(
+            "training.logging_steps_high",
+            "Logging interval may hide early failures",
+            "info",
+            "logging_steps is high enough that early NaN loss or OOM patterns may be missed.",
+            "Log every 10-50 steps while debugging a new fine-tuning run.",
+            logging_steps=logging_steps,
+        )
+
 
 def _parameter_counts(model: Any) -> tuple[int, int]:
     parameters = getattr(model, "parameters", None)
@@ -440,6 +550,7 @@ def _check_model_state(
     )
     rope_scaling = get_value(config, "rope_scaling")
     rope_theta = get_value(config, "rope_theta")
+    sliding_window = coerce_int(get_value(config, "sliding_window"), None)
     if sequence_length and max_positions and sequence_length > max_positions and not rope_scaling:
         report.add(
             "model.sequence_exceeds_context",
@@ -459,6 +570,36 @@ def _check_model_state(
             "Verify the RoPE scaling method matches the base model recipe before long-context fine-tuning.",
             rope_scaling=rope_scaling,
             rope_theta=rope_theta,
+        )
+
+    if sequence_length and sliding_window and sequence_length > sliding_window:
+        report.add(
+            "model.sliding_window_attention",
+            "Sequence length exceeds sliding attention window",
+            "info",
+            "The model config exposes a sliding_window smaller than the requested sequence length.",
+            "Long samples may train with local attention behavior; confirm this matches the model recipe.",
+            sequence_length=sequence_length,
+            sliding_window=sliding_window,
+        )
+
+    expert_count = coerce_int(
+        first_value(
+            config,
+            ["num_experts", "num_local_experts", "n_routed_experts", "moe_num_experts"],
+            None,
+        ),
+        None,
+    )
+    target_parameters = as_list(get_value(peft_config, "target_parameters"))
+    if expert_count and expert_count > 1 and peft_config is not None and not target_parameters:
+        report.add(
+            "model.moe_target_parameters_missing",
+            "MoE expert parameters may not be targeted",
+            "warning",
+            "The model looks like a mixture-of-experts architecture, but target_parameters is not configured.",
+            "For MoE layers that expose raw expert parameters, inspect parameter names and add target_parameters.",
+            expert_count=expert_count,
         )
 
     if bool_value(training_args, ["gradient_checkpointing"], False) and bool_value(config, ["use_cache"], False):
@@ -540,6 +681,7 @@ def _check_peft_config(
     peft_config: Any = None,
     model: Any = None,
     model_name: Optional[str] = None,
+    training_args: Any = None,
 ) -> None:
     if peft_config is None:
         return
@@ -551,6 +693,17 @@ def _check_peft_config(
     inference_mode = bool_value(peft_config, ["inference_mode"], False)
     init_lora_weights = get_value(peft_config, "init_lora_weights")
     target_modules = [str(item) for item in as_list(get_value(peft_config, "target_modules"))]
+    target_modules_lower = {item.lower() for item in target_modules}
+    modules_to_save = {
+        str(item).lower() for item in as_list(get_value(peft_config, "modules_to_save"))
+    }
+    target_parameters = as_list(get_value(peft_config, "target_parameters"))
+    use_rslora = bool_value(peft_config, ["use_rslora"], False)
+    use_dora = bool_value(peft_config, ["use_dora"], False)
+    loftq_config = get_value(peft_config, "loftq_config")
+    ensure_weight_tying = bool_value(peft_config, ["ensure_weight_tying"], False)
+    load_in_4bit = bool_value(training_args, ["load_in_4bit"], False)
+    load_in_8bit = bool_value(training_args, ["load_in_8bit"], False)
 
     if r is not None and r < 4:
         report.add(
@@ -613,6 +766,75 @@ def _check_peft_config(
             "LoRA target_modules includes embedding or output-head modules.",
             "Only target these deliberately; most causal LM LoRA runs adapt attention and MLP projection layers.",
             target_modules=", ".join(risky_targets),
+        )
+
+    if (load_in_4bit or load_in_8bit) and not target_modules_lower.intersection({"all-linear", "all_linear"}):
+        report.add(
+            "peft.qlora_all_linear_hint",
+            "QLoRA may benefit from broader linear targeting",
+            "info",
+            "The setup looks quantized, but target_modules does not use the all-linear shortcut.",
+            "If quality is weak and memory allows it, compare against target_modules='all-linear'.",
+        )
+
+    if r and r >= 64 and not use_rslora:
+        report.add(
+            "peft.rslora_hint",
+            "High-rank LoRA may benefit from rsLoRA",
+            "info",
+            "Large LoRA ranks can be easier to stabilize with rank-stabilized LoRA.",
+            "Consider use_rslora=True when experimenting with r=64 or higher.",
+            r=r,
+        )
+
+    if load_in_4bit and str(init_lora_weights).lower() != "loftq" and not loftq_config:
+        report.add(
+            "peft.loftq_hint",
+            "LoftQ initialization can help some QLoRA runs",
+            "info",
+            "The setup looks like QLoRA, but no LoftQ initialization setting was detected.",
+            "For quality-sensitive QLoRA experiments, compare the default init against init_lora_weights='loftq'.",
+        )
+
+    if use_dora and (load_in_4bit or load_in_8bit):
+        report.add(
+            "peft.dora_quantized_memory",
+            "DoRA with k-bit loading can use more memory",
+            "info",
+            "DoRA can improve adaptation, but it adds magnitude parameters and may increase memory use.",
+            "Benchmark a short run before committing to long QLoRA training with use_dora=True.",
+        )
+
+    for name in ["rank_pattern", "alpha_pattern"]:
+        value = get_value(peft_config, name)
+        if value is not None and not isinstance(value, dict):
+            report.add(
+                f"peft.{name}_invalid",
+                f"{name} should be a dictionary",
+                "warning",
+                f"{name} is configured, but it is not a dictionary.",
+                f"Use a mapping from module-name patterns to values, or remove {name}.",
+            )
+
+    if (
+        not ensure_weight_tying
+        and {"lm_head", "embed_tokens"}.intersection(target_modules_lower.union(modules_to_save))
+    ):
+        report.add(
+            "peft.ensure_weight_tying_missing",
+            "Tied embeddings may need explicit weight tying",
+            "info",
+            "The config touches embeddings or lm_head, but ensure_weight_tying is not enabled.",
+            "If the base model ties input embeddings and lm_head, consider ensure_weight_tying=True or verify after training.",
+        )
+
+    if target_parameters:
+        report.add(
+            "peft.target_parameters_configured",
+            "LoRA target parameters are configured",
+            "ok",
+            "target_parameters is present for parameters that are not ordinary module layers.",
+            target_parameters=", ".join(str(item) for item in target_parameters),
         )
 
     family = infer_model_family(model=model, model_name=model_name)
@@ -707,7 +929,12 @@ def diagnose_peft(
 
     check_memory(report, model=model, training_args=training_args, peft_config=peft_config, sequence_length=sequence_length)
     _check_target_modules(report, model=model, model_name=model_name, peft_config=peft_config)
-    check_tokenizer(report, tokenizer=tokenizer)
+    check_tokenizer(
+        report,
+        tokenizer=tokenizer,
+        training_args=training_args,
+        model_name=model_name,
+    )
     _check_model_state(
         report,
         model=model,
@@ -716,7 +943,13 @@ def diagnose_peft(
         peft_config=peft_config,
         sequence_length=sequence_length,
     )
-    _check_peft_config(report, peft_config=peft_config, model=model, model_name=model_name)
+    _check_peft_config(
+        report,
+        peft_config=peft_config,
+        model=model,
+        model_name=model_name,
+        training_args=training_args,
+    )
     _check_training_args(report, training_args=training_args, peft_config=peft_config)
     check_dataset(
         report,

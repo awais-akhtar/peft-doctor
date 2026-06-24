@@ -18,3 +18,21 @@ def test_loss_jump_warning():
 def test_scan_training_log_text():
     issues = scan_training_log(["step=1 loss=nan"])
     assert any(issue.code == "loss.nan" for issue in issues)
+
+
+def test_scan_training_log_runtime_failures():
+    issues = scan_training_log(
+        [
+            "RuntimeError: No space left on device",
+            "Expected all tensors to be on the same device",
+            "mat1 and mat2 shapes cannot be multiplied",
+            "token indices sequence length is longer than the specified maximum",
+            "step=2 loss=1.0 grad_norm=150",
+        ]
+    )
+    codes = {issue.code for issue in issues}
+    assert "log.disk_full" in codes
+    assert "log.device_mismatch" in codes
+    assert "log.shape_mismatch" in codes
+    assert "log.sequence_too_long" in codes
+    assert "grad_norm.spike" in codes

@@ -41,6 +41,17 @@ Developers often find this package while trying to fix one of these PEFT fine-tu
 - pad tokens left inside labels instead of being masked to `-100`
 - LoRA targeting `lm_head` or embedding layers by accident
 - `inference_mode=True` or disabled LoRA initialization in a training config
+- assistant-only or completion-only loss masking that hides the wrong tokens
+- chat templates without assistant generation blocks
+- Qwen instruct EOS token mistakes that make generations fail to stop cleanly
+- mixed chat/instruction schemas inside one training file
+- tool-calling and vision-language rows that need special formatting or collators
+- 4-bit and 8-bit loading accidentally enabled together
+- `bf16` and `fp16` both enabled in the same training run
+- DDP `find_unused_parameters` settings that slow or break LoRA training
+- MoE models where expert parameters may need `target_parameters`
+- newer PEFT choices such as `all-linear`, rsLoRA, LoftQ, and DoRA tradeoffs
+- disk-full, device mismatch, shape mismatch, overlong sequence, and gradient-norm failures in logs
 
 ## Install
 
@@ -86,6 +97,14 @@ peft-doctor check \
   --learning-rate 2e-4
 ```
 
+Generate a practical starter recipe:
+
+```bash
+peft-doctor recipe --kind qlora-sft --family llama
+peft-doctor recipe --kind low-vram-colab --family qwen --output markdown
+peft-doctor recipe --kind completion-only --family mistral --output json
+```
+
 Use it in Python:
 
 ```python
@@ -106,11 +125,17 @@ print(report.to_markdown())
 Generate safe starter configs:
 
 ```python
-from peft_doctor import create_safe_lora_config, create_safe_bnb_config, create_safe_training_args
+from peft_doctor import (
+    create_safe_lora_config,
+    create_safe_bnb_config,
+    create_safe_training_args,
+    create_training_recipe,
+)
 
 peft_config = create_safe_lora_config(model)
 bnb_config = create_safe_bnb_config()
 training_args = create_safe_training_args()
+recipe = create_training_recipe(kind="completion-only", model_family="llama")
 ```
 
 ## What It Checks
@@ -129,6 +154,8 @@ training_args = create_safe_training_args()
 | Trainer config | Missing warmup, seed, scheduler, checkpoint limit | Add stable defaults before long runs |
 | Distributed runs | DDP/FSDP/DeepSpeed/device map conflicts | Check launcher, quantization, and sharding settings |
 | Completion masking | Response template missing, pad labels, packing leaks | Fix collator templates, EOS, and label masks |
+| Advanced PEFT | rsLoRA, LoftQ, DoRA, all-linear, MoE targeting | Use `check` and `recipe` before long experiments |
+| Runtime logs | Device mismatch, disk full, shape mismatch, grad norm spikes | Run `scan-log` on trainer output |
 
 ## Troubleshooting Recipes
 
@@ -281,6 +308,22 @@ JSON:
 peft-doctor safe-config --family llama --output json
 ```
 
+### `peft-doctor recipe`
+
+Generates ready-to-use starter recipes for common PEFT jobs.
+
+```bash
+peft-doctor recipe --kind qlora-sft --family llama
+peft-doctor recipe --kind low-vram-colab --family qwen
+peft-doctor recipe --kind completion-only --family mistral --output json
+peft-doctor recipe --kind long-context --family llama --output markdown
+peft-doctor recipe --kind distributed-qlora --family qwen
+peft-doctor recipe --kind moe-lora --family deepseek
+peft-doctor recipe --kind adapter-merge
+```
+
+Available recipes: `qlora-sft`, `low-vram-colab`, `completion-only`, `long-context`, `distributed-qlora`, `moe-lora`, and `adapter-merge`.
+
 ### `peft-doctor inspect-dataset`
 
 Checks a local `.json`, `.jsonl`, `.csv`, or `.txt` dataset sample.
@@ -298,7 +341,7 @@ The command looks for common training shapes:
 
 ### `peft-doctor scan-log`
 
-Scans a training log for NaN, infinity, CUDA OOM, overflow, and unstable loss jumps.
+Scans a training log for NaN, infinity, CUDA OOM, overflow, device mismatch, disk-full errors, shape mismatch, overlong sequence warnings, gradient-norm spikes, and unstable loss jumps.
 
 ```bash
 peft-doctor scan-log trainer_log.jsonl
@@ -427,6 +470,15 @@ bnb_config = create_safe_bnb_config()
 ```
 
 When `peft`, `transformers`, and `torch` are installed, these helpers return real `LoraConfig` and `BitsAndBytesConfig` objects. Without those packages, they return plain dictionaries so you can still inspect the recommendation.
+
+### Generate a full recipe
+
+```python
+from peft_doctor import create_training_recipe
+
+recipe = create_training_recipe(kind="low-vram-colab", model_family="llama")
+print(recipe["training_args"])
+```
 
 ### Guard training logs
 
