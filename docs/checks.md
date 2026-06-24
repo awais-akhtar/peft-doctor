@@ -88,3 +88,38 @@ When loss becomes NaN, check these first:
 - missing gradient clipping
 
 The log scanner and `NanLossGuard` point to the same short list of fixes.
+
+## Advanced Data Checks
+
+PEFT Doctor also checks for problems that make a run look successful while silently teaching the wrong thing:
+
+- duplicate samples
+- train/eval overlap
+- empty or tiny response fields
+- chat rows without assistant replies
+- pre-tokenized labels that are all `-100`
+- `input_ids` and `labels` length mismatches
+- text rows likely to exceed the configured sequence length
+
+## Model State Checks
+
+When a model object is available in Python, `diagnose_peft(...)` checks:
+
+- `use_cache=True` with gradient checkpointing
+- tokenizer size larger than model embeddings
+- trainable parameter counts and ratios
+- zero trainable parameters after applying PEFT
+- unusually high trainable ratio for adapter training
+- long-context runs that may benefit from Flash Attention
+
+## Trainer Config Checks
+
+The training argument checker warns about:
+
+- missing warmup
+- missing scheduler
+- missing seed
+- missing checkpoint retention limit
+- QLoRA runs without a paged or 8-bit optimizer
+- dataloader workers set to zero
+- `max_steps` overriding `num_train_epochs`

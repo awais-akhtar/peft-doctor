@@ -154,3 +154,92 @@ Run:
 ```
 
 For private or gated Hugging Face models, use Colab Secrets with `HF_TOKEN`. Do not paste tokens into notebooks.
+
+## Ten More Problems PEFT Doctor Checks
+
+These are common problems that often show up after the first training run works.
+
+1. Fully masked labels:
+
+```text
+Problem: labels are all -100, so the model learns nothing.
+Fix: check the data collator and completion-only masking.
+```
+
+2. Label/input length mismatch:
+
+```text
+Problem: input_ids and labels have different lengths.
+Fix: tokenize, truncate, pad, and mask labels in one consistent step.
+```
+
+3. Duplicate samples:
+
+```text
+Problem: repeated rows make the adapter memorize examples.
+Fix: deduplicate train data before tokenization.
+```
+
+4. Train/eval leakage:
+
+```text
+Problem: eval rows also appear in train data.
+Fix: split first, then deduplicate each split and remove overlap.
+```
+
+5. Long samples are truncated:
+
+```text
+Problem: prompt or answer tokens are cut off by max sequence length.
+Fix: shorten examples, raise sequence_length, or preserve answer tokens during truncation.
+```
+
+6. `use_cache=True` with gradient checkpointing:
+
+```text
+Problem: extra memory use and Trainer warnings.
+Fix: set model.config.use_cache = False before training.
+```
+
+7. Tokenizer larger than model embeddings:
+
+```text
+Problem: new special tokens were added but embeddings were not resized.
+Fix: call model.resize_token_embeddings(len(tokenizer)).
+```
+
+8. No trainable LoRA parameters:
+
+```text
+Problem: adapters are not active or the model is frozen incorrectly.
+Fix: call model.print_trainable_parameters() and verify LoRA modules are attached.
+```
+
+9. Missing warmup or scheduler:
+
+```text
+Problem: early loss spikes or unstable learning.
+Fix: try warmup_ratio=0.03 and lr_scheduler_type="cosine" or "linear".
+```
+
+10. Checkpoints fill the disk:
+
+```text
+Problem: save_steps is set but save_total_limit is missing.
+Fix: set save_total_limit=2 or save_total_limit=3.
+```
+
+Run the combined check:
+
+```bash
+peft-doctor check \
+  --model meta-llama/Llama-3-8B \
+  --dataset train.jsonl \
+  --eval-dataset eval.jsonl \
+  --load-in-4bit \
+  --optim paged_adamw_8bit \
+  --warmup-ratio 0.03 \
+  --lr-scheduler-type cosine \
+  --save-total-limit 2 \
+  --seed 42
+```

@@ -14,6 +14,7 @@ from .utils import get_value
 TEXT_COLUMNS = ["text", "prompt", "completion", "response", "output", "instruction", "input"]
 RESPONSE_COLUMNS = ["response", "completion", "output", "answer"]
 INSTRUCTION_COLUMNS = ["instruction", "prompt", "question", "input"]
+IGNORE_LABEL_ID = -100
 
 
 def load_dataset_records(path: Union[str, Path], limit: int = 50) -> list[dict[str, Any]]:
@@ -98,6 +99,51 @@ def _row_text(row: Any) -> str:
     return "\n".join(pieces)
 
 
+def _normalized_text(row: Any) -> str:
+    return " ".join(_row_text(row).lower().split())
+
+
+def _response_text(row: Any) -> str:
+    if not isinstance(row, dict):
+        return ""
+    for column in RESPONSE_COLUMNS:
+        value = row.get(column)
+        if isinstance(value, str):
+            return value.strip()
+    return ""
+
+
+def _chat_has_assistant(row: Any) -> bool:
+    if not isinstance(row, dict):
+        return True
+    messages = row.get("messages") or row.get("conversations")
+    if not isinstance(messages, list):
+        return True
+    for message in messages:
+        if isinstance(message, dict) and str(message.get("role", "")).lower() == "assistant":
+            return True
+    return False
+
+
+def _labels(row: Any) -> list[Any]:
+    if not isinstance(row, dict):
+        return []
+    labels = row.get("labels")
+    return labels if isinstance(labels, list) else []
+
+
+def _input_ids(row: Any) -> list[Any]:
+    if not isinstance(row, dict):
+        return []
+    input_ids = row.get("input_ids")
+    return input_ids if isinstance(input_ids, list) else []
+
+
+def _token_estimate(text: str) -> int:
+    # A rough tokenizer-free estimate that is good enough for pre-flight warnings.
+    return max(len(text.split()), len(text) // 4)
+
+
 def has_instruction_markers(text: str) -> bool:
     lowered = text.lower()
     marker_pairs = [
@@ -136,8 +182,10 @@ def check_dataset(
     report: DiagnosisReport,
     train_dataset: Any = None,
     dataset_path: Optional[Union[str, Path]] = None,
+    eval_dataset: Any = None,
     tokenizer: Any = None,
     sample_size: int = 50,
+    sequence_length: Optional[int] = None,
 ) -> None:
     dataset = dataset_path or train_dataset
     if dataset is None:
@@ -171,7 +219,9 @@ def check_dataset(
         )
         return
 
-    empty_rows = [index for index, row in enumerate(rows) if not _row_text(row).strip() and not has_chat_messages(row)]
+    empty_rows = [
+        index for index, row in enumerate(rows) if not _row_text(row).strip() and not has_chat_messages(row)
+    ]
     if empty_rows:
         report.add(
             "dataset.empty_rows",
@@ -182,6 +232,116 @@ def check_dataset(
             count=len(empty_rows),
             first_index=empty_rows[0],
         )
+
+    normalized = [text for text in (_normalized_text(row) for row in rows) if text]
+    duplicate_count = len(normalized) - len(set(normalized))
+    if duplicate_count:
+        report.add(
+            "dataset.duplicates",
+            "Duplicate samples found",
+            "warning",
+            "Some sampled rows have identical text.",
+            "Remove duplicated samples so the adapter does not memorize repeated examples.",
+            count=duplicate_count,
+        )
+
+    short_responses = [
+        index
+        for index, row in enumerate(rows)
+        if has_instruction_response_columns(row) and len(_response_text(row)) < 2
+    ]
+    if short_responses:
+        report.add(
+            "dataset.short_responses",
+            "Very short responses found",
+            "warning",
+            "Some instruction rows have empty or tiny response text.",
+            "Remove rows with missing answers; they often cause models to learn blank or low-quality replies.",
+            count=len(short_responses),
+            first_index=short_responses[0],
+        )
+
+    chat_without_assistant = [
+        index for index, row in enumerate(rows) if has_chat_messages(row) and not _chat_has_assistant(row)
+    ]
+    if chat_without_assistant:
+        report.add(
+            "dataset.chat_missing_assistant",
+            "Chat rows are missing assistant replies",
+            "warning",
+            "Some chat samples do not contain an assistant message.",
+            "Each supervised chat sample should include the assistant answer you want the model to learn.",
+            count=len(chat_without_assistant),
+            first_index=chat_without_assistant[0],
+        )
+
+    all_ignored = [
+        index
+        for index, row in enumerate(rows)
+        if _labels(row) and all(label == IGNORE_LABEL_ID for label in _labels(row))
+    ]
+    if all_ignored:
+        report.add(
+            "dataset.labels_all_ignored",
+            "Labels are fully masked",
+            "error",
+            "Some pre-tokenized rows have labels where every token is -100.",
+            "Check your data collator or label masking; fully masked rows teach the model nothing.",
+            count=len(all_ignored),
+            first_index=all_ignored[0],
+        )
+
+    label_mismatch = [
+        index
+        for index, row in enumerate(rows)
+        if _labels(row) and _input_ids(row) and len(_labels(row)) != len(_input_ids(row))
+    ]
+    if label_mismatch:
+        report.add(
+            "dataset.label_length_mismatch",
+            "Label and input lengths differ",
+            "error",
+            "Some pre-tokenized rows have different `input_ids` and `labels` lengths.",
+            "Make sure tokenization, truncation, padding, and label masking happen together.",
+            count=len(label_mismatch),
+            first_index=label_mismatch[0],
+        )
+
+    if sequence_length:
+        long_rows = [
+            index
+            for index, row in enumerate(rows)
+            if _row_text(row).strip() and _token_estimate(_row_text(row)) > sequence_length
+        ]
+        if long_rows:
+            report.add(
+                "dataset.long_rows",
+                "Rows may be truncated",
+                "warning",
+                "Some sampled rows appear longer than the configured sequence length.",
+                "Shorten samples, raise sequence length, or confirm that truncation keeps the answer tokens.",
+                count=len(long_rows),
+                first_index=long_rows[0],
+                sequence_length=sequence_length,
+            )
+
+    if eval_dataset is not None:
+        try:
+            eval_rows = sample_dataset(eval_dataset, limit=sample_size)
+        except Exception:
+            eval_rows = []
+        train_texts = set(normalized)
+        eval_texts = {text for text in (_normalized_text(row) for row in eval_rows) if text}
+        overlap = train_texts.intersection(eval_texts)
+        if overlap:
+            report.add(
+                "dataset.train_eval_overlap",
+                "Train and eval samples overlap",
+                "warning",
+                "Some sampled training rows also appear in the eval dataset.",
+                "Deduplicate the split so eval metrics reflect generalization instead of memorization.",
+                count=len(overlap),
+            )
 
     first = rows[0]
     if isinstance(first, dict):
@@ -264,6 +424,7 @@ def check_tokenizer(report: DiagnosisReport, tokenizer: Any = None) -> None:
 
     pad_token = get_value(tokenizer, "pad_token")
     eos_token = get_value(tokenizer, "eos_token")
+    padding_side = get_value(tokenizer, "padding_side")
     if pad_token is None:
         report.add(
             "tokenizer.pad_token_missing",
@@ -279,6 +440,24 @@ def check_tokenizer(report: DiagnosisReport, tokenizer: Any = None) -> None:
             "Tokenizer pad token is set",
             "ok",
             "The tokenizer exposes a pad token.",
+        )
+
+    if eos_token is None:
+        report.add(
+            "tokenizer.eos_token_missing",
+            "Tokenizer has no EOS token",
+            "warning",
+            "The tokenizer does not expose an EOS token.",
+            "Set or verify `tokenizer.eos_token`; missing EOS tokens can cause runaway generation.",
+        )
+
+    if padding_side == "left":
+        report.add(
+            "tokenizer.left_padding_training",
+            "Tokenizer uses left padding",
+            "info",
+            "Left padding is common for generation, but right padding is usually simpler for causal LM training.",
+            "For SFT training, consider `tokenizer.padding_side = 'right'` unless your collator requires left padding.",
         )
 
     model_max_length = get_value(tokenizer, "model_max_length")

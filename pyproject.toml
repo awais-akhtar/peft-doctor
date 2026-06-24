@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "peft-doctor"
-version = "0.1.1"
-description = "Diagnose CUDA OOM, NaN loss, LoRA target modules, tokenizer padding, QLoRA, and PEFT adapter merge problems."
+version = "0.2.0"
+description = "Diagnose CUDA OOM, NaN loss, LoRA target modules, tokenizer padding, QLoRA, PEFT data, and adapter merge problems."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
@@ -36,6 +36,15 @@ keywords = [
   "merge_and_unload",
   "peft adapter",
   "google colab",
+  "sft",
+  "sfttrainer",
+  "instruction tuning",
+  "chat template",
+  "gradient checkpointing",
+  "flash attention",
+  "train eval leakage",
+  "label masking",
+  "save_pretrained",
   "llama",
   "qwen",
   "mistral",

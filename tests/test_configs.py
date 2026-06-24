@@ -18,3 +18,8 @@ def test_safe_training_args():
     args = create_safe_training_args()
     assert args["per_device_train_batch_size"] == 1
     assert args["gradient_checkpointing"] is True
+    assert args["warmup_ratio"] == 0.03
+    assert args["lr_scheduler_type"] == "cosine"
+    assert args["max_grad_norm"] == 1.0
+    assert args["save_total_limit"] == 2
+    assert args["seed"] == 42

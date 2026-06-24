@@ -25,6 +25,13 @@ Developers often find this package while trying to fix one of these PEFT fine-tu
 - `merge_and_unload()` problems when exporting a merged LoRA model
 - Colab PEFT setup problems, missing GPU runtime, or broken install cells
 - dataset format problems for instruction tuning, chat templates, SFT, and prompt/completion data
+- labels fully masked with `-100`, label/input length mismatches, or bad data collators
+- train/eval leakage, duplicate samples, and long rows getting truncated
+- `use_cache=True` conflicts with gradient checkpointing
+- tokenizer size larger than model embeddings after adding special tokens
+- too many or zero trainable parameters after applying LoRA
+- missing warmup, scheduler, seed, checkpoint retention, or QLoRA optimizer choices
+- slow long-context training that could use Flash Attention
 
 ## Install
 
@@ -87,13 +94,14 @@ report = diagnose_peft(
 print(report.to_markdown())
 ```
 
-Generate a safe starter config:
+Generate safe starter configs:
 
 ```python
-from peft_doctor import create_safe_lora_config, create_safe_bnb_config
+from peft_doctor import create_safe_lora_config, create_safe_bnb_config, create_safe_training_args
 
 peft_config = create_safe_lora_config(model)
 bnb_config = create_safe_bnb_config()
+training_args = create_safe_training_args()
 ```
 
 ## What It Checks
@@ -107,6 +115,9 @@ bnb_config = create_safe_bnb_config()
 | Tokenizer | Padding crash during batching | Set `tokenizer.pad_token = tokenizer.eos_token` when appropriate |
 | Evaluation | Eval OOM after training works | Disable eval or use a tiny eval batch |
 | Adapter flow | Adapter not found after training | Use `model.save_pretrained()` and `PeftModel.from_pretrained()` |
+| Data quality | Duplicate rows, split leakage, masked labels | Deduplicate, fix labels, separate train/eval |
+| Model state | `use_cache`, embeddings, trainable params | Disable cache, resize embeddings, verify LoRA trainables |
+| Trainer config | Missing warmup, seed, scheduler, checkpoint limit | Add stable defaults before long runs |
 
 ## Troubleshooting Recipes
 
@@ -182,6 +193,8 @@ peft-doctor merge-adapter \
 ```
 
 ## Commands
+
+Full command reference with examples: [docs/commands.md](docs/commands.md).
 
 ### `peft-doctor check`
 
@@ -504,8 +517,8 @@ The repository includes GitHub Actions for CI and PyPI publishing.
 4. Push a version tag to publish to PyPI:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 Manual TestPyPI publishing is available from the `Publish Python Package` workflow in GitHub Actions.

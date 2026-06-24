@@ -12,7 +12,7 @@ from rich.table import Table
 
 from ._version import __version__
 from .adapters import diagnose_adapter_merge, merge_lora_adapter
-from .configs import create_safe_bnb_config, create_safe_lora_config, create_safe_training_args
+from .configs import create_safe_bnb_config, create_safe_lora_config
 from .datasets import check_dataset
 from .diagnostics import diagnose_peft
 from .environment import diagnose_environment
@@ -112,10 +112,21 @@ def _print_report(report: DiagnosisReport, output: str) -> None:
 def check(
     model: Optional[str] = typer.Option(None, "--model", "-m", help="Hugging Face model id or local model path."),
     dataset: Optional[Path] = typer.Option(None, "--dataset", "-d", help="Local JSON, JSONL, CSV, or TXT dataset."),
+    eval_dataset: Optional[Path] = typer.Option(None, "--eval-dataset", help="Optional eval dataset for train/eval overlap checks."),
     batch_size: int = typer.Option(1, "--batch-size", help="per_device_train_batch_size to check."),
+    eval_batch_size: Optional[int] = typer.Option(None, "--eval-batch-size", help="per_device_eval_batch_size to check."),
     grad_accum: int = typer.Option(8, "--grad-accum", help="gradient_accumulation_steps to check."),
     sequence_length: int = typer.Option(2048, "--sequence-length", help="Training sequence length."),
     learning_rate: float = typer.Option(2e-4, "--learning-rate", help="Learning rate to check."),
+    optim: Optional[str] = typer.Option(None, "--optim", help="Trainer optimizer name, for example paged_adamw_8bit."),
+    warmup_ratio: Optional[float] = typer.Option(None, "--warmup-ratio", help="Trainer warmup_ratio value."),
+    warmup_steps: Optional[int] = typer.Option(None, "--warmup-steps", help="Trainer warmup_steps value."),
+    lr_scheduler_type: Optional[str] = typer.Option(None, "--lr-scheduler-type", help="Trainer scheduler, for example cosine or linear."),
+    save_steps: Optional[int] = typer.Option(500, "--save-steps", help="Trainer save_steps value."),
+    save_total_limit: Optional[int] = typer.Option(None, "--save-total-limit", help="Checkpoint retention limit."),
+    seed: Optional[int] = typer.Option(None, "--seed", help="Training seed."),
+    max_grad_norm: Optional[float] = typer.Option(None, "--max-grad-norm", help="Gradient clipping value."),
+    dataloader_num_workers: Optional[int] = typer.Option(None, "--dataloader-num-workers", help="Trainer dataloader workers."),
     load_in_4bit: bool = typer.Option(False, "--load-in-4bit", help="Tell the checker the model will use 4-bit loading."),
     bf16: bool = typer.Option(True, "--bf16/--no-bf16", help="Tell the checker whether bf16 is enabled."),
     fp16: bool = typer.Option(False, "--fp16/--no-fp16", help="Tell the checker whether fp16 is enabled."),
@@ -134,15 +145,35 @@ def check(
     """Run a pre-flight PEFT/LoRA/QLoRA diagnosis."""
 
     config, tokenizer, metadata_issues = _load_model_metadata(model, local_files_only)
-    training_args = create_safe_training_args(
-        per_device_train_batch_size=batch_size,
-        gradient_accumulation_steps=grad_accum,
-        learning_rate=learning_rate,
-        bf16=bf16,
-        gradient_checkpointing=gradient_checkpointing,
-    )
-    training_args["load_in_4bit"] = load_in_4bit
-    training_args["fp16"] = fp16
+    training_args = {
+        "per_device_train_batch_size": batch_size,
+        "gradient_accumulation_steps": grad_accum,
+        "learning_rate": learning_rate,
+        "bf16": bf16,
+        "gradient_checkpointing": gradient_checkpointing,
+        "load_in_4bit": load_in_4bit,
+        "fp16": fp16,
+    }
+    if eval_batch_size is not None:
+        training_args["per_device_eval_batch_size"] = eval_batch_size
+    if optim is not None:
+        training_args["optim"] = optim
+    if warmup_ratio is not None:
+        training_args["warmup_ratio"] = warmup_ratio
+    if warmup_steps is not None:
+        training_args["warmup_steps"] = warmup_steps
+    if lr_scheduler_type is not None:
+        training_args["lr_scheduler_type"] = lr_scheduler_type
+    if save_steps is not None:
+        training_args["save_steps"] = save_steps
+    if save_total_limit is not None:
+        training_args["save_total_limit"] = save_total_limit
+    if seed is not None:
+        training_args["seed"] = seed
+    if max_grad_norm is not None:
+        training_args["max_grad_norm"] = max_grad_norm
+    if dataloader_num_workers is not None:
+        training_args["dataloader_num_workers"] = dataloader_num_workers
 
     family = infer_model_family(config, model_name=model)
     peft_config = create_safe_lora_config(model=config, model_name=model, model_family=family, as_dict=True)
@@ -153,6 +184,7 @@ def check(
         peft_config=peft_config,
         training_args=training_args,
         dataset_path=dataset,
+        eval_dataset=eval_dataset,
         sequence_length=sequence_length,
         model_name=model,
     )

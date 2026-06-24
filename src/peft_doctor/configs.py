@@ -92,8 +92,13 @@ def create_safe_training_args(
     num_train_epochs: int = 3,
     bf16: bool = True,
     gradient_checkpointing: bool = True,
+    warmup_ratio: float = 0.03,
+    lr_scheduler_type: str = "cosine",
+    max_grad_norm: float = 1.0,
     logging_steps: int = 10,
     save_steps: int = 500,
+    save_total_limit: int = 2,
+    seed: int = 42,
     eval_strategy: str = "no",
 ) -> dict[str, Any]:
     """Return conservative TrainingArguments-style values."""
@@ -105,7 +110,12 @@ def create_safe_training_args(
         "num_train_epochs": num_train_epochs,
         "bf16": bf16,
         "gradient_checkpointing": gradient_checkpointing,
+        "warmup_ratio": warmup_ratio,
+        "lr_scheduler_type": lr_scheduler_type,
+        "max_grad_norm": max_grad_norm,
         "logging_steps": logging_steps,
         "save_steps": save_steps,
+        "save_total_limit": save_total_limit,
+        "seed": seed,
         "eval_strategy": eval_strategy,
     }

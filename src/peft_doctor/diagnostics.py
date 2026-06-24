@@ -95,6 +95,17 @@ def _check_training_args(report: DiagnosisReport, training_args: Any = None, pef
     epochs = coerce_float(first_value(training_args, ["num_train_epochs"], None), None)
     max_grad_norm = coerce_float(first_value(training_args, ["max_grad_norm"], None), None)
     eval_strategy = first_value(training_args, ["eval_strategy", "evaluation_strategy"], None)
+    optim = first_value(training_args, ["optim", "optimizer"], None)
+    warmup_steps = coerce_int(first_value(training_args, ["warmup_steps"], None), None)
+    warmup_ratio = coerce_float(first_value(training_args, ["warmup_ratio"], None), None)
+    lr_scheduler_type = first_value(training_args, ["lr_scheduler_type"], None)
+    save_steps = coerce_int(first_value(training_args, ["save_steps"], None), None)
+    save_total_limit = coerce_int(first_value(training_args, ["save_total_limit"], None), None)
+    seed = first_value(training_args, ["seed", "data_seed"], None)
+    dataloader_workers = coerce_int(first_value(training_args, ["dataloader_num_workers"], None), None)
+    max_steps = coerce_int(first_value(training_args, ["max_steps"], None), None)
+    load_in_4bit = bool_value(training_args, ["load_in_4bit"], False)
+    load_in_8bit = bool_value(training_args, ["load_in_8bit"], False)
 
     is_lora = peft_config is not None or get_value(training_args, "peft_config") is not None
     if learning_rate is not None:
@@ -192,6 +203,257 @@ def _check_training_args(report: DiagnosisReport, training_args: Any = None, pef
             "Try bf16=True on Ampere or newer NVIDIA GPUs.",
         )
 
+    if (load_in_4bit or load_in_8bit) and optim:
+        optim_text = str(optim).lower()
+        if "paged" not in optim_text and "8bit" not in optim_text:
+            report.add(
+                "training.quantized_optimizer",
+                "Optimizer may use more memory than needed",
+                "info",
+                "The setup looks quantized, but the optimizer is not a paged or 8-bit optimizer.",
+                "For QLoRA, try `optim='paged_adamw_8bit'` or `optim='paged_adamw_32bit'`.",
+                optim=optim,
+            )
+    elif (load_in_4bit or load_in_8bit) and not optim:
+        report.add(
+            "training.optimizer_missing",
+            "Optimizer is not specified",
+            "info",
+            "No optimizer choice was found for a quantized training plan.",
+            "For QLoRA, a common choice is `optim='paged_adamw_8bit'`.",
+        )
+
+    if warmup_steps in {None, 0} and warmup_ratio in {None, 0.0}:
+        report.add(
+            "training.warmup_missing",
+            "Warmup is not configured",
+            "info",
+            "No warmup_steps or warmup_ratio value was found.",
+            "Try warmup_ratio=0.03 for many SFT runs, especially when loss spikes early.",
+        )
+
+    if lr_scheduler_type is None:
+        report.add(
+            "training.scheduler_missing",
+            "LR scheduler is not explicit",
+            "info",
+            "No lr_scheduler_type value was found.",
+            "Common stable choices are `cosine` or `linear` with a small warmup.",
+        )
+
+    if save_steps and save_total_limit is None:
+        report.add(
+            "training.save_total_limit_missing",
+            "Checkpoint limit is missing",
+            "warning",
+            "save_steps is configured, but save_total_limit was not found.",
+            "Set save_total_limit=2 or 3 to avoid filling disk during long runs.",
+            save_steps=save_steps,
+        )
+
+    if seed is None:
+        report.add(
+            "training.seed_missing",
+            "Training seed is missing",
+            "info",
+            "No seed or data_seed value was found.",
+            "Set seed=42 or another fixed value when comparing experiments.",
+        )
+
+    if dataloader_workers == 0:
+        report.add(
+            "training.dataloader_workers_zero",
+            "Dataloader workers are zero",
+            "info",
+            "dataloader_num_workers=0 can slow training when tokenization or collation is heavy.",
+            "Try dataloader_num_workers=2 or 4 if your platform supports it.",
+        )
+
+    if max_steps and max_steps > 0 and epochs:
+        report.add(
+            "training.max_steps_overrides_epochs",
+            "max_steps overrides epochs",
+            "info",
+            "Transformers Trainer stops by max_steps when it is positive.",
+            "Confirm this is intentional; num_train_epochs may not control the run length.",
+            max_steps=max_steps,
+            num_train_epochs=epochs,
+        )
+
+
+def _parameter_counts(model: Any) -> tuple[int, int]:
+    parameters = getattr(model, "parameters", None)
+    if not callable(parameters):
+        return 0, 0
+    total = 0
+    trainable = 0
+    try:
+        for param in parameters():
+            numel = int(param.numel())
+            total += numel
+            if bool(getattr(param, "requires_grad", False)):
+                trainable += numel
+    except Exception:
+        return 0, 0
+    return total, trainable
+
+
+def _embedding_size(model: Any) -> Optional[int]:
+    get_embeddings = getattr(model, "get_input_embeddings", None)
+    if not callable(get_embeddings):
+        return None
+    try:
+        embeddings = get_embeddings()
+        return int(embeddings.weight.shape[0])
+    except Exception:
+        return None
+
+
+def _tokenizer_size(tokenizer: Any) -> Optional[int]:
+    if tokenizer is None:
+        return None
+    try:
+        return int(len(tokenizer))
+    except Exception:
+        return None
+
+
+def _check_model_state(
+    report: DiagnosisReport,
+    model: Any = None,
+    tokenizer: Any = None,
+    training_args: Any = None,
+    peft_config: Any = None,
+    sequence_length: Optional[int] = None,
+) -> None:
+    if model is None:
+        return
+
+    config = get_value(model, "config") or model
+    if bool_value(training_args, ["gradient_checkpointing"], False) and bool_value(config, ["use_cache"], False):
+        report.add(
+            "model.use_cache_with_checkpointing",
+            "use_cache conflicts with gradient checkpointing",
+            "warning",
+            "The model config has use_cache=True while gradient checkpointing is enabled.",
+            "Set `model.config.use_cache = False` before training to avoid warnings or extra memory use.",
+        )
+
+    vocab_size = _tokenizer_size(tokenizer)
+    embedding_size = _embedding_size(model)
+    if vocab_size and embedding_size and vocab_size > embedding_size:
+        report.add(
+            "model.embedding_resize_needed",
+            "Tokenizer is larger than model embeddings",
+            "warning",
+            "The tokenizer has more tokens than the model input embeddings.",
+            "Call `model.resize_token_embeddings(len(tokenizer))` after adding special tokens.",
+            tokenizer_size=vocab_size,
+            embedding_size=embedding_size,
+        )
+
+    total_params, trainable_params = _parameter_counts(model)
+    if total_params:
+        ratio = trainable_params / total_params
+        report.add(
+            "model.trainable_params",
+            "Trainable parameter ratio detected",
+            "info",
+            f"{trainable_params:,} of {total_params:,} parameters are trainable.",
+            trainable_params=trainable_params,
+            total_params=total_params,
+            trainable_percent=round(ratio * 100, 4),
+        )
+        if peft_config is not None and trainable_params == 0:
+            report.add(
+                "model.no_trainable_params",
+                "No trainable parameters",
+                "error",
+                "The model reports zero trainable parameters.",
+                "After applying LoRA, call `model.print_trainable_parameters()` and verify adapters are active.",
+            )
+        elif peft_config is not None and ratio > 0.2:
+            report.add(
+                "model.too_many_trainable_params",
+                "Too many parameters are trainable for PEFT",
+                "warning",
+                "More than 20% of parameters are trainable.",
+                "Check that the base model is frozen and only adapter parameters are trainable.",
+                trainable_percent=round(ratio * 100, 4),
+            )
+
+    attn_impl = first_value(config, ["attn_implementation", "_attn_implementation"], None)
+    if sequence_length and sequence_length >= 2048 and attn_impl not in {"flash_attention_2", "flash_attention_3"}:
+        report.add(
+            "model.flash_attention_recommended",
+            "Flash Attention may speed up long-context training",
+            "info",
+            "Sequence length is 2048 or higher and the config does not show Flash Attention.",
+            "If your GPU and model support it, load with `attn_implementation='flash_attention_2'`.",
+            attn_implementation=attn_impl,
+        )
+
+
+def _check_peft_config(report: DiagnosisReport, peft_config: Any = None) -> None:
+    if peft_config is None:
+        return
+
+    r = coerce_int(get_value(peft_config, "r"), None)
+    alpha = coerce_float(get_value(peft_config, "lora_alpha"), None)
+    dropout = coerce_float(get_value(peft_config, "lora_dropout"), None)
+
+    if r is not None and r < 4:
+        report.add(
+            "peft.rank_low",
+            "LoRA rank may be too low",
+            "info",
+            "Very small LoRA ranks can underfit instruction data.",
+            "Try r=8 or r=16 if the model is not learning.",
+            r=r,
+        )
+    elif r is not None and r > 128:
+        report.add(
+            "peft.rank_high",
+            "LoRA rank is high",
+            "warning",
+            "High LoRA rank increases memory use and overfitting risk.",
+            "Try r=16, r=32, or r=64 unless you have a strong reason for a larger rank.",
+            r=r,
+        )
+
+    if r and alpha:
+        alpha_ratio = alpha / r
+        if alpha_ratio > 4:
+            report.add(
+                "peft.alpha_high",
+                "LoRA alpha is high relative to rank",
+                "info",
+                "A very high lora_alpha/r ratio can make adapter updates aggressive.",
+                "A common starting point is lora_alpha around 2x the rank.",
+                r=r,
+                lora_alpha=alpha,
+            )
+        elif alpha_ratio < 1:
+            report.add(
+                "peft.alpha_low",
+                "LoRA alpha is low relative to rank",
+                "info",
+                "A low lora_alpha/r ratio can make adapter updates weak.",
+                "A common starting point is lora_alpha around 2x the rank.",
+                r=r,
+                lora_alpha=alpha,
+            )
+
+    if dropout is not None and dropout > 0.2:
+        report.add(
+            "peft.dropout_high",
+            "LoRA dropout is high",
+            "warning",
+            "High LoRA dropout can slow learning or cause underfitting.",
+            "Try lora_dropout between 0.0 and 0.1 for many SFT runs.",
+            lora_dropout=dropout,
+        )
+
 
 def _check_adapter_flow(report: DiagnosisReport, peft_config: Any = None) -> None:
     if peft_config is None:
@@ -254,8 +516,24 @@ def diagnose_peft(
     check_memory(report, model=model, training_args=training_args, peft_config=peft_config, sequence_length=sequence_length)
     _check_target_modules(report, model=model, model_name=model_name, peft_config=peft_config)
     check_tokenizer(report, tokenizer=tokenizer)
+    _check_model_state(
+        report,
+        model=model,
+        tokenizer=tokenizer,
+        training_args=training_args,
+        peft_config=peft_config,
+        sequence_length=sequence_length,
+    )
+    _check_peft_config(report, peft_config=peft_config)
     _check_training_args(report, training_args=training_args, peft_config=peft_config)
-    check_dataset(report, train_dataset=train_dataset, dataset_path=dataset_path, tokenizer=tokenizer)
+    check_dataset(
+        report,
+        train_dataset=train_dataset,
+        dataset_path=dataset_path,
+        eval_dataset=eval_dataset,
+        tokenizer=tokenizer,
+        sequence_length=sequence_length,
+    )
     _check_adapter_flow(report, peft_config=peft_config)
 
     return report
