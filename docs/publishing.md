@@ -12,9 +12,9 @@ The CI workflow runs on pushes and pull requests:
 
 It installs the package in editable mode, runs Ruff, runs tests, and builds the wheel and source distribution.
 
-## Trusted Publishing
+## PyPI API Token Publishing
 
-The publish workflow uses PyPI trusted publishing. That means GitHub Actions can publish without storing a long-lived PyPI token in repository secrets.
+The publish workflow can publish with the repository secret `PYPI_API_TOKEN1`.
 
 Workflow file:
 
@@ -22,29 +22,23 @@ Workflow file:
 .github/workflows/publish.yml
 ```
 
-Register these trusted publishers:
+Add this GitHub Actions secret:
 
-PyPI:
+```text
+PYPI_API_TOKEN1
+```
 
-- project name: `peft-doctor`
-- owner: `awais-akhtar`
-- repository: `peft-doctor`
-- workflow name: `publish.yml`
-- environment: `pypi`
+The token value should be the full PyPI token, starting with `pypi-`.
 
-TestPyPI:
-
-- project name: `peft-doctor`
-- owner: `awais-akhtar`
-- repository: `peft-doctor`
-- workflow name: `publish.yml`
-- environment: `testpypi`
+Pushes to `main` build the package and attempt a PyPI upload. The workflow uses
+`skip-existing: true`, so a repeated push with the same package version will not
+upload a duplicate release.
 
 ## Publish to TestPyPI
 
 Open GitHub Actions, run `Publish Python Package`, and choose `testpypi`.
 
-## Publish to PyPI
+## Publish to PyPI With a Tag
 
 Update the version in:
 
