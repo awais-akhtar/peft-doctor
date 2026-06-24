@@ -377,8 +377,7 @@ def env_command(
 def colab() -> None:
     """Print a Google Colab setup cell."""
 
-    console.print(
-        """# Run this in a fresh Colab notebook cell.
+    snippet = """# Run this in a fresh Colab notebook cell.
 %pip install -U "peft-doctor[ml]"
 
 !peft-doctor env
@@ -409,7 +408,7 @@ bnb_config = create_safe_bnb_config()
 # )
 # print(report.to_markdown())
 """
-    )
+    console.print(snippet, markup=False, soft_wrap=True)
 
 
 @app.command()
