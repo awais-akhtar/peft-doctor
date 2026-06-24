@@ -1,11 +1,30 @@
-# PEFT Doctor
+# PEFT Doctor: LoRA and QLoRA Fine-Tuning Debugger
 
-PEFT Doctor is a pre-flight checker for LoRA and QLoRA fine-tuning. It catches the boring problems before they burn a training run: CUDA memory pressure, risky learning rates, missing tokenizer padding, weak LoRA target modules, broken prompt formats, NaN losses, and adapter save/load mistakes.
+PEFT Doctor is a pre-flight checker and troubleshooting toolkit for PEFT, LoRA, and QLoRA fine-tuning. It catches the problems that usually waste a training run: CUDA out of memory, NaN loss, risky learning rates, missing tokenizer padding, wrong LoRA target modules, broken prompt formats, bitsandbytes setup issues, and adapter save/load or merge failures.
+
+It is built for the way people actually fine-tune models today: Hugging Face Transformers, PEFT, TRL, bitsandbytes, Google Colab, local CUDA machines, and common Llama, Mistral, Qwen, Gemma, Phi, GPT-2, Falcon, Bloom, and T5-style model families.
 
 The package works in two ways:
 
 - Use `peft-doctor` from the terminal before training.
 - Use `diagnose_peft(...)` inside your training script with real `model`, `tokenizer`, `peft_config`, `training_args`, and dataset objects.
+
+## Problems PEFT Doctor Helps Fix
+
+Developers often find this package while trying to fix one of these PEFT fine-tuning problems:
+
+- `CUDA out of memory` during LoRA or QLoRA training
+- QLoRA 4-bit loading problems with `bitsandbytes`
+- `loss=nan`, infinite loss, fp16 overflow, or unstable training loss
+- wrong `target_modules` for Llama, Mistral, Qwen, Gemma, Phi, GPT-2, Falcon, Bloom, or T5
+- tokenizer padding errors such as `tokenizer has no pad_token`
+- model not learning after PEFT fine-tuning
+- bad output, repeated text, or prompt template mistakes
+- PEFT adapter not saving, loading, or merging correctly
+- `PeftModel.from_pretrained` adapter loading issues
+- `merge_and_unload()` problems when exporting a merged LoRA model
+- Colab PEFT setup problems, missing GPU runtime, or broken install cells
+- dataset format problems for instruction tuning, chat templates, SFT, and prompt/completion data
 
 ## Install
 
@@ -88,6 +107,79 @@ bnb_config = create_safe_bnb_config()
 | Tokenizer | Padding crash during batching | Set `tokenizer.pad_token = tokenizer.eos_token` when appropriate |
 | Evaluation | Eval OOM after training works | Disable eval or use a tiny eval batch |
 | Adapter flow | Adapter not found after training | Use `model.save_pretrained()` and `PeftModel.from_pretrained()` |
+
+## Troubleshooting Recipes
+
+For a longer problem-by-problem guide, see [docs/troubleshooting.md](docs/troubleshooting.md).
+
+### Fix CUDA Out of Memory in PEFT or QLoRA
+
+```bash
+peft-doctor check \
+  --model meta-llama/Llama-3-8B \
+  --dataset train.jsonl \
+  --batch-size 4 \
+  --sequence-length 4096 \
+  --learning-rate 2e-4
+```
+
+If the report warns about memory, start with:
+
+```python
+training_args = {
+    "per_device_train_batch_size": 1,
+    "gradient_accumulation_steps": 8,
+    "gradient_checkpointing": True,
+    "bf16": True,
+}
+```
+
+For QLoRA:
+
+```python
+from peft_doctor import create_safe_bnb_config
+
+bnb_config = create_safe_bnb_config()
+```
+
+### Fix Wrong LoRA Target Modules
+
+```bash
+peft-doctor targets --model meta-llama/Llama-3-8B
+peft-doctor targets --model Qwen/Qwen2.5-7B
+peft-doctor targets --family gpt2
+```
+
+### Fix NaN Loss in LoRA Fine-Tuning
+
+```bash
+peft-doctor scan-log trainer_log.jsonl
+```
+
+Common fixes are lower learning rate, bf16 instead of fp16, cleaner samples, valid labels, gradient clipping, and shorter sequences while debugging.
+
+### Fix Tokenizer Padding Errors
+
+```python
+tokenizer.pad_token = tokenizer.eos_token
+```
+
+PEFT Doctor warns when a causal language model tokenizer has no pad token.
+
+### Merge a LoRA Adapter Into the Base Model
+
+```bash
+peft-doctor adapter-check \
+  --base-model meta-llama/Llama-2-7b-hf \
+  --adapter your-user/your-lora-adapter \
+  --output-dir merged-model
+
+peft-doctor merge-adapter \
+  --base-model meta-llama/Llama-2-7b-hf \
+  --adapter your-user/your-lora-adapter \
+  --output-dir merged-model \
+  --dtype fp16
+```
 
 ## Commands
 

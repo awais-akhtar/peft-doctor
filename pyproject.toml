@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "peft-doctor"
-version = "0.1.0"
-description = "A practical pre-flight doctor for PEFT, LoRA, and QLoRA fine-tuning runs."
+version = "0.1.1"
+description = "Diagnose CUDA OOM, NaN loss, LoRA target modules, tokenizer padding, QLoRA, and PEFT adapter merge problems."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
@@ -17,7 +17,28 @@ keywords = [
   "lora",
   "qlora",
   "fine-tuning",
+  "finetuning",
   "transformers",
+  "huggingface",
+  "pytorch",
+  "torch",
+  "trl",
+  "sfttrainer",
+  "bitsandbytes",
+  "cuda oom",
+  "cuda out of memory",
+  "nan loss",
+  "target modules",
+  "target_modules",
+  "tokenizer padding",
+  "pad token",
+  "adapter merge",
+  "merge_and_unload",
+  "peft adapter",
+  "google colab",
+  "llama",
+  "qwen",
+  "mistral",
   "llm",
   "machine-learning",
   "debugging"
