@@ -1,0 +1,3 @@
+{"text": "### Instruction:\nExplain LoRA in one sentence.\n\n### Response:\nLoRA trains small adapter matrices while keeping the base model mostly frozen."}
+{"text": "### Instruction:\nGive one QLoRA memory tip.\n\n### Response:\nUse 4-bit NF4 loading, batch size 1, and gradient checkpointing first."}
+

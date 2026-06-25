@@ -115,3 +115,10 @@ Print a low-VRAM recipe directly in Colab:
 ```python
 !peft-doctor recipe --kind low-vram-colab --family llama --output markdown
 ```
+
+Copy a complete Colab recipe project:
+
+```python
+!peft-doctor recipe llama3-qlora-colab --copy my-run
+!peft-doctor validate-recipe my-run
+```

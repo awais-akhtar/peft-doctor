@@ -175,3 +175,21 @@ PEFT Doctor now also warns about:
 - tensor shape mismatch
 - sequence length above the model limit
 - invalid or spiking gradient norms
+
+## Auto-Repair Checks
+
+`peft-doctor fix` can safely patch common repeat issues:
+
+- tokenizer pad token fallback
+- `use_cache=False` for gradient checkpointing
+- `fp16` and `bf16` conflict
+- risky LoRA target modules
+- high-risk starter batch size or sequence length
+- missing warmup, logging, and save strategy
+- pad token ids inside dataset labels
+
+Always run dry-run first:
+
+```bash
+peft-doctor fix --dry-run train.py
+```

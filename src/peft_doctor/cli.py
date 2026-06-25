@@ -12,13 +12,21 @@ from rich.table import Table
 
 from ._version import __version__
 from .adapters import diagnose_adapter_merge, merge_lora_adapter
-from .configs import create_safe_bnb_config, create_safe_lora_config
+from .configs import create_safe_bnb_config, create_safe_lora_config, create_safe_training_args
 from .datasets import check_dataset
 from .diagnostics import diagnose_peft
 from .environment import diagnose_environment
+from .fixer import repair_config_file, repair_dataset_file, repair_python_file
 from .logs import scan_training_log
 from .notebooks import scan_notebook
-from .recipes import RECIPE_NAMES, create_training_recipe
+from .recipes import (
+    PROJECT_RECIPE_NAMES,
+    RECIPE_NAMES,
+    benchmark_recipe_report,
+    copy_recipe_project,
+    create_training_recipe,
+    validate_recipe_project,
+)
 from .report import DiagnosisReport, DiagnosticIssue
 from .targets import infer_model_family, recommend_target_modules
 
@@ -251,6 +259,73 @@ def check(
     _print_report(report, output)
 
 
+def _print_fix_report(report: DiagnosisReport, output: str, *, will_write: bool) -> None:
+    if output in {"json", "markdown"}:
+        _print_report(report, output)
+        return
+    found = int(report.metadata.get("issues_found", len(report.issues)))
+    safe = int(report.metadata.get("safe_fixes", 0))
+    console.print(f"Found {found} issue{'s' if found != 1 else ''}.")
+    console.print(f"Safe auto-fixes available for {safe}.")
+    if report.metadata.get("written_to"):
+        console.print(f"Patched file written to {report.metadata['written_to']}.")
+    elif report.metadata.get("changed") and not will_write:
+        console.print("Run with --write or --output to apply.")
+    _print_report(report, "table")
+
+
+@app.command("fix")
+def fix_command(
+    target: Optional[Path] = typer.Argument(None, help="Optional Python or JSON config file to fix."),
+    input_path: Optional[Path] = typer.Option(None, "--input", "-i", help="Python training script to patch."),
+    dataset: Optional[Path] = typer.Option(None, "--dataset", help="JSONL or JSON dataset to patch."),
+    config: Optional[Path] = typer.Option(None, "--config", help="JSON config file to patch."),
+    output_path: Optional[Path] = typer.Option(None, "--output", "-o", help="Write patched output to this file."),
+    write: bool = typer.Option(False, "--write", help="Write changes in place when no --output is provided."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show the auto-fix report without writing files."),
+    family: Optional[str] = typer.Option(None, "--family", "-f", help="Model family for target module repairs."),
+    pad_token_id: int = typer.Option(0, "--pad-token-id", help="Pad token id to mask in dataset labels."),
+    report_format: str = typer.Option("table", "--format", help="Report format: table, json, or markdown."),
+) -> None:
+    """Safely patch common PEFT training, config, and dataset problems."""
+
+    selected = input_path or config or dataset or target
+    if selected is None:
+        console.print("[red]Pass a Python file, --input, --config, or --dataset.[/red]")
+        raise typer.Exit(2)
+
+    is_dataset = dataset is not None
+    is_config = config is not None or (selected.suffix.lower() == ".json" and input_path is None)
+    is_python = input_path is not None or selected.suffix.lower() == ".py"
+    will_write = (write or output_path is not None) and not dry_run
+
+    if is_dataset:
+        report = repair_dataset_file(
+            selected,
+            pad_token_id=pad_token_id,
+            output=output_path,
+            write=write,
+            dry_run=dry_run,
+        )
+    elif is_config and not is_python:
+        report = repair_config_file(
+            selected,
+            model_family=family,
+            output=output_path,
+            write=write,
+            dry_run=dry_run,
+        )
+    else:
+        report = repair_python_file(
+            selected,
+            model_family=family,
+            output=output_path,
+            write=write,
+            dry_run=dry_run,
+        )
+    _print_fix_report(report, report_format, will_write=will_write)
+
+
 def _print_recipe(recipe_data: dict[str, object], output: str) -> None:
     if output == "json":
         console.print_json(json.dumps(recipe_data, indent=2))
@@ -313,15 +388,78 @@ def _print_recipe(recipe_data: dict[str, object], output: str) -> None:
 
 @app.command("recipe")
 def recipe_command(
-    kind: str = typer.Option("qlora-sft", "--kind", "-k", help=f"Recipe name: {', '.join(RECIPE_NAMES)}."),
+    recipe_name: Optional[str] = typer.Argument(None, help="Recipe name, for example llama3-qlora-colab."),
+    kind: Optional[str] = typer.Option(None, "--kind", "-k", help=f"Starter recipe name: {', '.join(RECIPE_NAMES)}."),
     model: Optional[str] = typer.Option(None, "--model", "-m", help="Model id used to infer the family."),
     family: Optional[str] = typer.Option(None, "--family", "-f", help="Known family, for example llama, qwen, or mistral."),
+    copy_to: Optional[Path] = typer.Option(None, "--copy", help="Copy a runnable recipe project to this directory."),
+    overwrite: bool = typer.Option(False, "--overwrite", help="Allow copying into a non-empty directory."),
     output: str = typer.Option("python", "--output", "-o", help="Output format: python, json, or markdown."),
 ) -> None:
     """Generate a practical PEFT/QLoRA fine-tuning recipe."""
 
-    recipe_data = create_training_recipe(kind=kind, model_name=model, model_family=family)
+    selected = recipe_name or kind or "qlora-sft"
+    if copy_to is not None:
+        report = copy_recipe_project(selected, copy_to, overwrite=overwrite)
+        _print_report(report, "table" if output == "python" else output)
+        if report.has_errors:
+            raise typer.Exit(2)
+        return
+
+    try:
+        recipe_data = create_training_recipe(kind=selected, model_name=model, model_family=family)
+    except ValueError as exc:
+        if selected in PROJECT_RECIPE_NAMES:
+            console.print("[yellow]This is a project recipe. Use --copy ./my-run to create files.[/yellow]")
+        raise typer.BadParameter(str(exc)) from exc
     _print_recipe(recipe_data, output)
+
+
+@app.command("validate-recipe")
+def validate_recipe_command(
+    path: Path = typer.Argument(..., help="Copied recipe project directory."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Validate a copied recipe project."""
+
+    _print_report(validate_recipe_project(path), output)
+
+
+@app.command("benchmark")
+def benchmark_command(
+    recipe: str = typer.Option(..., "--recipe", "-r", help="Recipe name, for example llama3-qlora-colab."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Show packaged pre-flight benchmark evidence for a recipe."""
+
+    _print_report(benchmark_recipe_report(recipe), output)
+
+
+@app.command("validate")
+def validate_command(
+    model: str = typer.Option(..., "--model", "-m", help="Model family or model id, for example qwen."),
+    dataset: Path = typer.Option(..., "--dataset", "-d", help="Dataset path to validate."),
+    report_path: Optional[Path] = typer.Option(None, "--report", help="Write a markdown report to this path."),
+    sequence_length: int = typer.Option(2048, "--sequence-length", help="Sequence length to validate."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Run a lightweight validation report without loading the full model."""
+
+    family = infer_model_family(model_name=model) or model
+    peft_config = create_safe_lora_config(model_family=family, model_name=model, as_dict=True)
+    training_args = create_safe_training_args()
+    training_args.update({"load_in_4bit": True, "gradient_checkpointing_kwargs": {"use_reentrant": False}})
+    report = diagnose_peft(
+        peft_config=peft_config,
+        training_args=training_args,
+        dataset_path=dataset,
+        sequence_length=sequence_length,
+        model_name=model,
+    )
+    if report_path is not None:
+        report_path.write_text(report.to_markdown(), encoding="utf-8")
+        report.metadata["written_to"] = str(report_path)
+    _print_report(report, output)
 
 
 @app.command()

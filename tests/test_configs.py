@@ -4,6 +4,7 @@ from peft_doctor import (
     create_safe_training_args,
     create_training_recipe,
 )
+from peft_doctor.recipes import copy_recipe_project, validate_recipe_project
 
 
 def test_safe_lora_config_dict():
@@ -41,3 +42,14 @@ def test_training_recipe_adapter_merge():
     recipe = create_training_recipe(kind="adapter-merge")
     assert recipe["recipe"] == "adapter-merge"
     assert any("adapter-check" in command for command in recipe["commands"])
+
+
+def test_copy_and_validate_recipe_project(tmp_path):
+    destination = tmp_path / "run"
+    copy_report = copy_recipe_project("llama3-qlora-colab", destination)
+    assert not copy_report.has_errors
+    assert (destination / "train.py").exists()
+    assert (destination / "sample_data.jsonl").exists()
+
+    validate_report = validate_recipe_project(destination)
+    assert not validate_report.has_errors

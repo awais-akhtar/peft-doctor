@@ -1,0 +1,3 @@
+{"messages": [{"role": "user", "content": "What is LoRA?"}, {"role": "assistant", "content": "LoRA fine-tunes small adapter matrices instead of the whole model."}]}
+{"messages": [{"role": "user", "content": "Name one stability setting."}, {"role": "assistant", "content": "Use warmup_ratio, gradient clipping, and frequent logging for first runs."}]}
+

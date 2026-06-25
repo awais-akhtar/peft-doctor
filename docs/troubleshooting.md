@@ -436,3 +436,31 @@ Fix: run peft-doctor scan-log run.log and apply the reported fix before restarti
 Problem: too many config choices before the first stable run.
 Fix: start with peft-doctor recipe --kind qlora-sft, low-vram-colab, completion-only, long-context, distributed-qlora, or moe-lora.
 ```
+
+## Auto-Fix Workflow
+
+Start with a dry run:
+
+```bash
+peft-doctor fix --dry-run train.py
+```
+
+Write a patched copy:
+
+```bash
+peft-doctor fix --input train.py --output train.fixed.py --family llama
+```
+
+Patch config JSON:
+
+```bash
+peft-doctor fix --config config.json --output config.fixed.json
+```
+
+Patch dataset labels:
+
+```bash
+peft-doctor fix --dataset data.jsonl --write --pad-token-id 0
+```
+
+The fixer is intentionally conservative. It only writes when `--write` or `--output` is used, and `--dry-run` never changes files.

@@ -9,9 +9,17 @@ from .configs import (
 )
 from .diagnostics import diagnose_peft
 from .environment import collect_environment, diagnose_environment
+from .fixer import repair_config_file, repair_dataset_file, repair_python_file, repair_python_source
 from .logs import NanLossGuard, scan_training_log
 from .notebooks import scan_notebook
-from .recipes import RECIPE_NAMES, create_training_recipe
+from .recipes import (
+    PROJECT_RECIPE_NAMES,
+    RECIPE_NAMES,
+    benchmark_recipe_report,
+    copy_recipe_project,
+    create_training_recipe,
+    validate_recipe_project,
+)
 from .report import DiagnosisReport, DiagnosticIssue
 from .targets import infer_model_family, recommend_target_modules
 
@@ -20,12 +28,15 @@ __all__ = [
     "DiagnosticIssue",
     "MergeResult",
     "NanLossGuard",
+    "PROJECT_RECIPE_NAMES",
     "RECIPE_NAMES",
     "__version__",
     "create_safe_bnb_config",
     "create_safe_lora_config",
     "create_safe_training_args",
     "create_training_recipe",
+    "benchmark_recipe_report",
+    "copy_recipe_project",
     "diagnose_adapter_merge",
     "collect_environment",
     "diagnose_environment",
@@ -33,6 +44,11 @@ __all__ = [
     "infer_model_family",
     "merge_lora_adapter",
     "recommend_target_modules",
+    "repair_config_file",
+    "repair_dataset_file",
+    "repair_python_file",
+    "repair_python_source",
     "scan_notebook",
     "scan_training_log",
+    "validate_recipe_project",
 ]

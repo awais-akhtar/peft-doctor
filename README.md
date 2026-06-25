@@ -8,6 +8,7 @@ The package works in two ways:
 
 - Use `peft-doctor` from the terminal before training.
 - Use `diagnose_peft(...)` inside your training script with real `model`, `tokenizer`, `peft_config`, `training_args`, and dataset objects.
+- Use `peft-doctor fix --dry-run train.py` to preview safe auto-repairs before writing a patched file.
 
 ## Problems PEFT Doctor Helps Fix
 
@@ -52,6 +53,7 @@ Developers often find this package while trying to fix one of these PEFT fine-tu
 - MoE models where expert parameters may need `target_parameters`
 - newer PEFT choices such as `all-linear`, rsLoRA, LoftQ, and DoRA tradeoffs
 - disk-full, device mismatch, shape mismatch, overlong sequence, and gradient-norm failures in logs
+- training scripts and JSON configs that can be safely patched before a failed run
 
 ## Install
 
@@ -103,6 +105,17 @@ Generate a practical starter recipe:
 peft-doctor recipe --kind qlora-sft --family llama
 peft-doctor recipe --kind low-vram-colab --family qwen --output markdown
 peft-doctor recipe --kind completion-only --family mistral --output json
+peft-doctor recipe llama3-qlora-colab --copy ./my-run
+peft-doctor validate-recipe ./my-run
+```
+
+Preview safe auto-fixes:
+
+```bash
+peft-doctor fix --dry-run train.py
+peft-doctor fix --input train.py --output train.fixed.py
+peft-doctor fix --dataset data.jsonl --write --pad-token-id 0
+peft-doctor fix --config config.json --dry-run
 ```
 
 Use it in Python:
@@ -156,6 +169,8 @@ recipe = create_training_recipe(kind="completion-only", model_family="llama")
 | Completion masking | Response template missing, pad labels, packing leaks | Fix collator templates, EOS, and label masks |
 | Advanced PEFT | rsLoRA, LoftQ, DoRA, all-linear, MoE targeting | Use `check` and `recipe` before long experiments |
 | Runtime logs | Device mismatch, disk full, shape mismatch, grad norm spikes | Run `scan-log` on trainer output |
+| Auto-repair | Common config mistakes repeated across projects | Run `fix --dry-run`, then write a patched copy |
+| Recipes | Beginners need a complete first run | Use `recipe NAME --copy ./my-run` and `validate-recipe` |
 
 ## Troubleshooting Recipes
 
@@ -237,6 +252,19 @@ peft-doctor merge-adapter \
 ## Commands
 
 Full command reference with examples: [docs/commands.md](docs/commands.md).
+
+### `peft-doctor fix`
+
+Safely patches common PEFT training mistakes.
+
+```bash
+peft-doctor fix --dry-run train.py
+peft-doctor fix --input train.py --output train.fixed.py
+peft-doctor fix --config config.json --dry-run
+peft-doctor fix --dataset data.jsonl --write --pad-token-id 0
+```
+
+It can add `tokenizer.pad_token = tokenizer.eos_token`, set `model.config.use_cache = False`, resolve `bf16`/`fp16` conflicts, replace risky LoRA target modules, lower high-risk batch/sequence values, add warmup/logging/save settings, and mask pad labels to `-100`.
 
 ### `peft-doctor check`
 
@@ -320,9 +348,19 @@ peft-doctor recipe --kind long-context --family llama --output markdown
 peft-doctor recipe --kind distributed-qlora --family qwen
 peft-doctor recipe --kind moe-lora --family deepseek
 peft-doctor recipe --kind adapter-merge
+peft-doctor recipe llama3-qlora-colab --copy ./my-run
+peft-doctor recipe qwen-low-vram --copy ./my-run
 ```
 
 Available recipes: `qlora-sft`, `low-vram-colab`, `completion-only`, `long-context`, `distributed-qlora`, `moe-lora`, and `adapter-merge`.
+
+Copyable project recipes: `llama3-qlora-colab`, `qwen2-qlora-colab`, `qwen-low-vram`, `mistral-lora-local`, `gemma-low-vram`, and `completion-only-sft`.
+
+Validate a copied project:
+
+```bash
+peft-doctor validate-recipe ./my-run
+```
 
 ### `peft-doctor inspect-dataset`
 
@@ -425,6 +463,13 @@ Prints the installed version.
 ```bash
 peft-doctor version
 ```
+
+### Validation And Case Studies
+
+- [benchmarks/validation_matrix.md](benchmarks/validation_matrix.md)
+- [docs/case-studies/cuda-oom-fixed.md](docs/case-studies/cuda-oom-fixed.md)
+- [docs/case-studies/nan-loss-fixed.md](docs/case-studies/nan-loss-fixed.md)
+- [docs/case-studies/wrong-target-modules-fixed.md](docs/case-studies/wrong-target-modules-fixed.md)
 
 ## Python API
 

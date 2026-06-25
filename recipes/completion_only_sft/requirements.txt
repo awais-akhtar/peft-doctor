@@ -1,0 +1,10 @@
+peft-doctor[ml]
+torch
+transformers
+peft
+trl
+datasets
+accelerate
+safetensors
+sentencepiece
+

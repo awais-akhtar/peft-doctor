@@ -18,9 +18,13 @@ In Colab:
 
 ```bash
 peft-doctor check
+peft-doctor fix
 peft-doctor targets
 peft-doctor safe-config
 peft-doctor recipe
+peft-doctor validate-recipe
+peft-doctor benchmark
+peft-doctor validate
 peft-doctor inspect-dataset
 peft-doctor scan-log
 peft-doctor scan-notebook
@@ -150,6 +154,58 @@ Useful options:
 - `--ddp-find-unused-parameters` / `--ddp-no-find-unused-parameters`: DDP unused parameter behavior
 - `--logging-steps`: logging interval used to catch early loss failures
 
+## `peft-doctor fix`
+
+Use this when PEFT Doctor already knows the safe repair. Start with dry-run mode:
+
+```bash
+peft-doctor fix --dry-run train.py
+```
+
+Typical output:
+
+```text
+Found 7 issues.
+Safe auto-fixes available for 5.
+Run with --write or --output to apply.
+```
+
+Patch a Python training script into a new file:
+
+```bash
+peft-doctor fix --input train.py --output train.fixed.py
+```
+
+Patch a JSON config:
+
+```bash
+peft-doctor fix --config config.json --dry-run
+peft-doctor fix --config config.json --output config.fixed.json
+```
+
+Patch a JSONL dataset in place by masking pad labels:
+
+```bash
+peft-doctor fix --dataset data.jsonl --write --pad-token-id 0
+```
+
+Automatic repairs include:
+
+- add `tokenizer.pad_token = tokenizer.eos_token`
+- set `model.config.use_cache = False` when gradient checkpointing is on
+- turn off `fp16` when both `fp16` and `bf16` are enabled
+- replace risky LoRA targets such as `lm_head` or embeddings
+- reduce risky batch size and long sequence length starter values
+- add `warmup_ratio`, `logging_steps`, and `save_strategy`
+- mask pad labels to `-100` in JSON/JSONL datasets
+
+Useful options:
+
+- `--family llama`, `--family qwen`, or `--family mistral` for target module repair
+- `--format json` or `--format markdown` for automation
+- `--write` for in-place edits
+- `--output` for a patched copy
+
 ## `peft-doctor targets`
 
 Use this when LoRA is not learning or you are unsure what `target_modules` should be.
@@ -214,6 +270,14 @@ Basic QLoRA SFT:
 peft-doctor recipe --kind qlora-sft --family llama
 ```
 
+Copy a complete runnable recipe project:
+
+```bash
+peft-doctor recipe llama3-qlora-colab --copy ./my-run
+peft-doctor recipe qwen-low-vram --copy ./my-run
+peft-doctor recipe completion-only-sft --copy ./completion-run
+```
+
 Low-VRAM Colab:
 
 ```bash
@@ -259,6 +323,44 @@ Available recipes:
 - `distributed-qlora`
 - `moe-lora`
 - `adapter-merge`
+
+Copyable project recipes:
+
+- `llama3-qlora-colab`
+- `qwen2-qlora-colab`
+- `qwen-low-vram`
+- `mistral-lora-local`
+- `gemma-low-vram`
+- `completion-only-sft`
+
+## `peft-doctor validate-recipe`
+
+Use this after copying a recipe project.
+
+```bash
+peft-doctor validate-recipe ./my-run
+peft-doctor validate-recipe ./my-run --output markdown
+```
+
+It checks the required project files and confirms the training script still contains PEFT Doctor safety calls.
+
+## `peft-doctor benchmark`
+
+Show packaged pre-flight validation evidence for a recipe.
+
+```bash
+peft-doctor benchmark --recipe llama3-qlora-colab
+peft-doctor benchmark --recipe qwen2-qlora-colab --output markdown
+```
+
+## `peft-doctor validate`
+
+Create a lightweight validation report for a model family and dataset without loading the full model.
+
+```bash
+peft-doctor validate --model qwen --dataset sample_data.jsonl --report report.md
+peft-doctor validate --model mistral --dataset sample_data.jsonl --output json
+```
 
 ## `peft-doctor inspect-dataset`
 
