@@ -9,9 +9,19 @@ from .configs import (
 )
 from .diagnostics import diagnose_peft
 from .environment import collect_environment, diagnose_environment
+from .estimator import estimate_vram_gb, infer_params_billion
+from .explain import (
+    explanation_text,
+    report_to_html,
+    report_to_pdf_bytes,
+    risk_summary,
+    write_html_report,
+    write_pdf_report,
+)
 from .fixer import repair_config_file, repair_dataset_file, repair_python_file, repair_python_source
 from .logs import NanLossGuard, scan_training_log
 from .notebooks import scan_notebook
+from .profiles import MODEL_FAMILY_PROFILES, ModelFamilyProfile, list_model_profiles, profile_for
 from .recipes import (
     PROJECT_RECIPE_NAMES,
     RECIPE_NAMES,
@@ -30,6 +40,8 @@ __all__ = [
     "NanLossGuard",
     "PROJECT_RECIPE_NAMES",
     "RECIPE_NAMES",
+    "MODEL_FAMILY_PROFILES",
+    "ModelFamilyProfile",
     "__version__",
     "create_safe_bnb_config",
     "create_safe_lora_config",
@@ -41,14 +53,24 @@ __all__ = [
     "collect_environment",
     "diagnose_environment",
     "diagnose_peft",
+    "estimate_vram_gb",
+    "explanation_text",
     "infer_model_family",
+    "infer_params_billion",
+    "list_model_profiles",
     "merge_lora_adapter",
     "recommend_target_modules",
+    "profile_for",
+    "report_to_html",
+    "report_to_pdf_bytes",
     "repair_config_file",
     "repair_dataset_file",
     "repair_python_file",
     "repair_python_source",
     "scan_notebook",
     "scan_training_log",
+    "risk_summary",
     "validate_recipe_project",
+    "write_html_report",
+    "write_pdf_report",
 ]

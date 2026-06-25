@@ -50,8 +50,8 @@ src/peft_doctor/_version.py
 Commit the change, tag it, and push the tag:
 
 ```bash
-git tag v0.5.0
-git push origin v0.5.0
+git tag v0.6.0
+git push origin v0.6.0
 ```
 
 The `pypi` environment should require manual approval before release.

@@ -89,6 +89,7 @@ def diagnose_adapter_merge(
     load_in_4bit: bool = False,
     load_in_8bit: bool = False,
     overwrite: bool = False,
+    merge_plan: bool = True,
 ) -> DiagnosisReport:
     """Check whether an adapter merge plan looks healthy."""
 
@@ -99,6 +100,7 @@ def diagnose_adapter_merge(
             "output_dir": str(output_dir) if output_dir else None,
             "push_to_hub": push_to_hub,
             "hub_model_id": hub_model_id,
+            "merge_plan": merge_plan,
         }
     )
 
@@ -186,66 +188,67 @@ def diagnose_adapter_merge(
             base_model=effective_base,
         )
 
-    if load_in_4bit or load_in_8bit:
-        report.add(
-            "adapter_merge.quantized_merge_risky",
-            "Quantized merge is risky",
-            "warning",
-            "Merging adapters after 4-bit or 8-bit loading can fail or produce a model that is not saved as expected.",
-            "For final export, load the base model in fp16, bf16, or fp32, merge, then save with safetensors.",
-        )
-    else:
-        report.add(
-            "adapter_merge.full_precision_merge",
-            "Merge will use non-quantized loading",
-            "ok",
-            "This is the safest path for exporting a merged model.",
-        )
-
-    if output_dir:
-        out = Path(output_dir)
-        if out.exists() and any(out.iterdir()) and not overwrite:
+    if merge_plan:
+        if load_in_4bit or load_in_8bit:
             report.add(
-                "adapter_merge.output_exists",
-                "Output directory already has files",
+                "adapter_merge.quantized_merge_risky",
+                "Quantized merge is risky",
                 "warning",
-                "The output directory exists and is not empty.",
-                "Pass `--overwrite` if you want save_pretrained to write into this directory.",
-                output_dir=str(out),
+                "Merging adapters after 4-bit or 8-bit loading can fail or produce a model that is not saved as expected.",
+                "For final export, load the base model in fp16, bf16, or fp32, merge, then save with safetensors.",
             )
         else:
             report.add(
-                "adapter_merge.output_ok",
-                "Output directory is usable",
+                "adapter_merge.full_precision_merge",
+                "Merge will use non-quantized loading",
                 "ok",
-                "The output directory can be used for save_pretrained.",
-                output_dir=str(out),
+                "This is the safest path for exporting a merged model.",
             )
-    elif not push_to_hub:
-        report.add(
-            "adapter_merge.no_output",
-            "No output target provided",
-            "error",
-            "The merge command needs a local output directory or a Hub repository.",
-            "Pass `--output-dir merged-model` or use `--push-to-hub --hub-model-id user/repo`.",
-        )
 
-    if push_to_hub and not hub_model_id:
-        report.add(
-            "adapter_merge.hub_id_missing",
-            "Hub model id is missing",
-            "error",
-            "Push-to-Hub was requested but no target repo id was provided.",
-            "Pass `--hub-model-id username/model-name`.",
-        )
-    elif push_to_hub:
-        report.add(
-            "adapter_merge.hub_push_ready",
-            "Hub push target is set",
-            "ok",
-            "The merged model and tokenizer will be pushed to the Hub.",
-            hub_model_id=hub_model_id,
-        )
+        if output_dir:
+            out = Path(output_dir)
+            if out.exists() and any(out.iterdir()) and not overwrite:
+                report.add(
+                    "adapter_merge.output_exists",
+                    "Output directory already has files",
+                    "warning",
+                    "The output directory exists and is not empty.",
+                    "Pass `--overwrite` if you want save_pretrained to write into this directory.",
+                    output_dir=str(out),
+                )
+            else:
+                report.add(
+                    "adapter_merge.output_ok",
+                    "Output directory is usable",
+                    "ok",
+                    "The output directory can be used for save_pretrained.",
+                    output_dir=str(out),
+                )
+        elif not push_to_hub:
+            report.add(
+                "adapter_merge.no_output",
+                "No output target provided",
+                "error",
+                "The merge command needs a local output directory or a Hub repository.",
+                "Pass `--output-dir merged-model` or use `--push-to-hub --hub-model-id user/repo`.",
+            )
+
+        if push_to_hub and not hub_model_id:
+            report.add(
+                "adapter_merge.hub_id_missing",
+                "Hub model id is missing",
+                "error",
+                "Push-to-Hub was requested but no target repo id was provided.",
+                "Pass `--hub-model-id username/model-name`.",
+            )
+        elif push_to_hub:
+            report.add(
+                "adapter_merge.hub_push_ready",
+                "Hub push target is set",
+                "ok",
+                "The merged model and tokenizer will be pushed to the Hub.",
+                hub_model_id=hub_model_id,
+            )
 
     report.add(
         "adapter_merge.secret_note",

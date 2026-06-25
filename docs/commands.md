@@ -19,6 +19,13 @@ In Colab:
 ```bash
 peft-doctor check
 peft-doctor fix
+peft-doctor init
+peft-doctor estimate
+peft-doctor dataset-doctor
+peft-doctor inspect-adapter
+peft-doctor analyze-log
+peft-doctor profiles
+peft-doctor notebook-check
 peft-doctor targets
 peft-doctor safe-config
 peft-doctor recipe
@@ -115,6 +122,15 @@ peft-doctor check --model gpt2 --dataset train.jsonl --output json
 peft-doctor check --model gpt2 --dataset train.jsonl --output markdown
 ```
 
+Explain mode and reports:
+
+```bash
+peft-doctor check train.py --explain
+peft-doctor check train.py --html-report report.html
+peft-doctor check train.py --pdf-report report.pdf
+peft-doctor check train.py --report report.md
+```
+
 Useful options:
 
 - `--model`: Hugging Face model id or local model path
@@ -153,6 +169,74 @@ Useful options:
 - `--gradient-checkpointing-use-reentrant` / `--gradient-checkpointing-non-reentrant`: checkpointing mode
 - `--ddp-find-unused-parameters` / `--ddp-no-find-unused-parameters`: DDP unused parameter behavior
 - `--logging-steps`: logging interval used to catch early loss failures
+- `--explain`: print risk score, reasons, and copy-paste fixes
+- `--html-report`: write an HTML report
+- `--pdf-report`: write a small PDF report
+
+## `peft-doctor init`
+
+Use the wizard to generate a full project from model, GPU, dataset type, and target VRAM.
+
+```bash
+peft-doctor init
+peft-doctor init --model llama3 --gpu T4 --dataset-type chat --target-vram 16 --output-dir my-run
+```
+
+## `peft-doctor estimate`
+
+Estimate expected VRAM before training:
+
+```bash
+peft-doctor estimate --model llama-3-8b --seq-len 2048 --batch-size 2 --qlora
+peft-doctor estimate --model qwen2.5-7b --seq-len 4096 --batch-size 1 --qlora --target-vram 24
+```
+
+## `peft-doctor dataset-doctor`
+
+Dataset doctor checks bad rows, empty answers, duplicates, too-long examples, missing assistant roles, prompt markers, and completion templates.
+
+```bash
+peft-doctor dataset-doctor data.jsonl --sequence-length 2048
+peft-doctor dataset-doctor data.jsonl --packing --response-template "### Response:"
+```
+
+## `peft-doctor inspect-adapter`
+
+Adapter doctor checks saved LoRA adapters before upload or merge.
+
+```bash
+peft-doctor inspect-adapter ./adapter
+peft-doctor inspect-adapter ./adapter --base-model meta-llama/Meta-Llama-3-8B
+```
+
+## `peft-doctor analyze-log`
+
+Analyze logs and explain failures.
+
+```bash
+peft-doctor analyze-log trainer.log
+peft-doctor analyze-log trainer.log --output markdown
+```
+
+## `peft-doctor profiles`
+
+Show built-in model-family profiles.
+
+```bash
+peft-doctor profiles
+peft-doctor profiles qwen
+```
+
+## `peft-doctor notebook-check`
+
+Scan a Colab or Jupyter notebook before sharing it or running a long job. This is the same checker as `scan-notebook`, with a clearer product name.
+
+```bash
+peft-doctor notebook-check model_merge.ipynb
+peft-doctor notebook-check training_notebook.ipynb --output markdown
+```
+
+It checks hard-coded Hugging Face tokens, risky login cells, stale package pins, adapter merge mistakes, typo redirects, and quantized merge patterns.
 
 ## `peft-doctor fix`
 

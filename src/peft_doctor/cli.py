@@ -16,15 +16,19 @@ from .configs import create_safe_bnb_config, create_safe_lora_config, create_saf
 from .datasets import check_dataset
 from .diagnostics import diagnose_peft
 from .environment import diagnose_environment
+from .estimator import estimate_vram_gb
+from .explain import explanation_text, write_html_report, write_pdf_report
 from .fixer import repair_config_file, repair_dataset_file, repair_python_file
 from .logs import scan_training_log
 from .notebooks import scan_notebook
+from .profiles import list_model_profiles, profile_for
 from .recipes import (
     PROJECT_RECIPE_NAMES,
     RECIPE_NAMES,
     benchmark_recipe_report,
     copy_recipe_project,
     create_training_recipe,
+    normalize_recipe_name,
     validate_recipe_project,
 )
 from .report import DiagnosisReport, DiagnosticIssue
@@ -117,6 +121,23 @@ def _print_report(report: DiagnosisReport, output: str) -> None:
     )
 
 
+def _write_optional_reports(
+    report: DiagnosisReport,
+    html_report: Optional[Path],
+    markdown_report: Optional[Path],
+    pdf_report: Optional[Path] = None,
+) -> None:
+    if html_report is not None:
+        write_html_report(report, html_report)
+        console.print(f"[green]HTML report written to {html_report}[/green]")
+    if markdown_report is not None:
+        markdown_report.write_text(report.to_markdown(), encoding="utf-8")
+        console.print(f"[green]Markdown report written to {markdown_report}[/green]")
+    if pdf_report is not None:
+        write_pdf_report(report, pdf_report)
+        console.print(f"[green]PDF report written to {pdf_report}[/green]")
+
+
 def _python_literal(value: object) -> str:
     if value in {"bnb_config", "torch.bfloat16", "torch.float16", "torch.float32", None}:
         return str(value)
@@ -125,6 +146,7 @@ def _python_literal(value: object) -> str:
 
 @app.command()
 def check(
+    script: Optional[Path] = typer.Argument(None, help="Optional Python training script for explain/fix pre-checks."),
     model: Optional[str] = typer.Option(None, "--model", "-m", help="Hugging Face model id or local model path."),
     dataset: Optional[Path] = typer.Option(None, "--dataset", "-d", help="Local JSON, JSONL, CSV, or TXT dataset."),
     eval_dataset: Optional[Path] = typer.Option(None, "--eval-dataset", help="Optional eval dataset for train/eval overlap checks."),
@@ -172,6 +194,10 @@ def check(
         "--local-files-only",
         help="Only read model metadata already present in the local Hugging Face cache.",
     ),
+    explain: bool = typer.Option(False, "--explain", help="Print risk score, reasons, and copy-paste fixes."),
+    html_report: Optional[Path] = typer.Option(None, "--html-report", help="Write an HTML report to this path."),
+    pdf_report: Optional[Path] = typer.Option(None, "--pdf-report", help="Write a simple PDF report to this path."),
+    markdown_report: Optional[Path] = typer.Option(None, "--report", help="Write a markdown report to this path."),
     output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
 ) -> None:
     """Run a pre-flight PEFT/LoRA/QLoRA diagnosis."""
@@ -256,7 +282,16 @@ def check(
         model_name=model,
     )
     report.extend(metadata_issues)
+    if script is not None:
+        script_report = repair_python_file(script, model_family=family, dry_run=True)
+        report.extend(script_report.issues)
+        report.metadata["script"] = str(script)
+        report.metadata["script_safe_fixes"] = script_report.metadata.get("safe_fixes", 0)
+    _write_optional_reports(report, html_report, markdown_report, pdf_report)
     _print_report(report, output)
+    if explain:
+        console.print()
+        console.print(explanation_text(report), markup=False)
 
 
 def _print_fix_report(report: DiagnosisReport, output: str, *, will_write: bool) -> None:
@@ -324,6 +359,77 @@ def fix_command(
             dry_run=dry_run,
         )
     _print_fix_report(report, report_format, will_write=will_write)
+
+
+@app.command("estimate")
+def estimate_command(
+    model: str = typer.Option(..., "--model", "-m", help="Model name or family, for example llama-3-8b."),
+    seq_len: int = typer.Option(2048, "--seq-len", help="Training sequence length."),
+    batch_size: int = typer.Option(1, "--batch-size", help="Per-device train batch size."),
+    qlora: bool = typer.Option(False, "--qlora", help="Estimate a 4-bit QLoRA run."),
+    no_lora: bool = typer.Option(False, "--no-lora", help="Estimate full fine-tuning instead of LoRA."),
+    no_gradient_checkpointing: bool = typer.Option(False, "--no-gradient-checkpointing", help="Estimate without gradient checkpointing."),
+    target_vram: Optional[float] = typer.Option(None, "--target-vram", help="Target GPU VRAM in GB."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Estimate VRAM before starting a PEFT run."""
+
+    _print_report(
+        estimate_vram_gb(
+            model,
+            seq_len=seq_len,
+            batch_size=batch_size,
+            qlora=qlora,
+            lora=not no_lora,
+            gradient_checkpointing=not no_gradient_checkpointing,
+            target_vram_gb=target_vram,
+        ),
+        output,
+    )
+
+
+@app.command("init")
+def init_command(
+    output_dir: Path = typer.Option(Path("peft-doctor-run"), "--output-dir", "-o", help="Project directory to create."),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="Model or family. Prompted when omitted."),
+    gpu: Optional[str] = typer.Option(None, "--gpu", help="GPU name, for example T4, L4, A100, or local."),
+    dataset_type: Optional[str] = typer.Option(None, "--dataset-type", help="chat, completion, instruction, or text."),
+    target_vram: Optional[float] = typer.Option(None, "--target-vram", help="Target VRAM in GB."),
+    overwrite: bool = typer.Option(False, "--overwrite", help="Allow writing into a non-empty project directory."),
+) -> None:
+    """Interactive wizard that generates a full training project."""
+
+    model_value = model or typer.prompt("Model or family", default="llama3")
+    gpu_value = gpu or typer.prompt("GPU", default="T4")
+    dataset_value = dataset_type or typer.prompt("Dataset type", default="chat")
+    vram_value = target_vram if target_vram is not None else float(typer.prompt("Target VRAM GB", default="16"))
+
+    lowered = f"{model_value} {gpu_value} {dataset_value}".lower()
+    if "completion" in lowered:
+        recipe = "completion-only-sft"
+    elif "qwen" in lowered:
+        recipe = "qwen2-qlora-colab"
+    elif "mistral" in lowered and vram_value >= 24:
+        recipe = "mistral-lora-local"
+    elif "gemma" in lowered or vram_value <= 12:
+        recipe = "gemma-low-vram"
+    else:
+        recipe = "llama3-qlora-colab"
+
+    report = copy_recipe_project(recipe, output_dir, overwrite=overwrite)
+    report.metadata.update(
+        {
+            "wizard_model": model_value,
+            "wizard_gpu": gpu_value,
+            "wizard_dataset_type": dataset_value,
+            "wizard_target_vram": vram_value,
+            "selected_recipe": normalize_recipe_name(recipe),
+        }
+    )
+    _print_report(report, "table")
+    if report.has_errors:
+        raise typer.Exit(2)
+    console.print(f"[green]Created project from {recipe}. Next: cd {output_dir} && python train.py --dry-run[/green]")
 
 
 def _print_recipe(recipe_data: dict[str, object], output: str) -> None:
@@ -462,6 +568,85 @@ def validate_command(
     _print_report(report, output)
 
 
+@app.command("dataset-doctor")
+def dataset_doctor_command(
+    dataset: Path = typer.Argument(..., help="Local JSON, JSONL, CSV, or TXT dataset."),
+    sequence_length: Optional[int] = typer.Option(None, "--sequence-length", help="Sequence length for long-row checks."),
+    response_template: Optional[str] = typer.Option(None, "--response-template", help="Completion-only response template."),
+    packing: bool = typer.Option(False, "--packing", help="Check packed dataset EOS boundaries."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Dataset doctor for bad rows, duplicates, roles, and too-long examples."""
+
+    report = DiagnosisReport(metadata={"dataset": str(dataset), "doctor": "dataset"})
+    check_dataset(
+        report,
+        dataset_path=dataset,
+        sequence_length=sequence_length,
+        training_args={"response_template": response_template, "packing": packing},
+    )
+    _print_report(report, output)
+
+
+@app.command("inspect-adapter")
+def inspect_adapter_command(
+    adapter: str = typer.Argument(..., help="PEFT adapter path or Hugging Face Hub id."),
+    base_model: Optional[str] = typer.Option(None, "--base-model", "-m", help="Expected original base model id."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Adapter doctor for saved LoRA adapters before upload or merge."""
+
+    _print_report(diagnose_adapter_merge(base_model=base_model, adapter=adapter, merge_plan=False), output)
+
+
+@app.command("analyze-log")
+def analyze_log_command(
+    log_file: Path = typer.Argument(..., help="Trainer log file, JSONL log, or text log."),
+    explain: bool = typer.Option(True, "--explain/--no-explain", help="Print risk and fix explanations."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Analyze a training log and explain the failure."""
+
+    report = DiagnosisReport(metadata={"log_file": str(log_file), "doctor": "log"})
+    report.extend(scan_training_log(log_file))
+    _print_report(report, output)
+    if explain:
+        console.print()
+        console.print(explanation_text(report), markup=False)
+
+
+@app.command("profiles")
+def profiles_command(
+    family: Optional[str] = typer.Argument(None, help="Optional family: llama, qwen, mistral, gemma, phi, falcon."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Show built-in model-family profiles."""
+
+    report = DiagnosisReport(metadata={"profiles": "model families"})
+    profiles = [profile_for(family)] if family else list_model_profiles()
+    for profile in profiles:
+        if profile is None:
+            report.add(
+                "profiles.unknown",
+                "Model profile not found",
+                "warning",
+                f"No profile matched `{family}`.",
+                "Use one of: llama, qwen, mistral, gemma, phi, falcon.",
+            )
+            continue
+        report.add(
+            "profiles.family",
+            f"{profile.name} profile",
+            "ok",
+            profile.tokenizer_notes,
+            "Use the listed target modules as a practical LoRA starting point.",
+            target_modules=", ".join(profile.target_modules),
+            default_seq_len=profile.default_seq_len,
+            common_risks=", ".join(profile.common_risks),
+        )
+    _print_report(report, output)
+
+
 @app.command()
 def targets(
     model: Optional[str] = typer.Option(None, "--model", "-m", help="Model id used to infer the family."),
@@ -546,6 +731,16 @@ def scan_notebook_command(
     output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
 ) -> None:
     """Scan a notebook for PEFT, Colab, and token-handling mistakes."""
+
+    _print_report(scan_notebook(notebook), output)
+
+
+@app.command("notebook-check")
+def notebook_check_command(
+    notebook: Path = typer.Argument(..., help="Notebook to scan."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Scan a Colab or Jupyter notebook for PEFT mistakes."""
 
     _print_report(scan_notebook(notebook), output)
 

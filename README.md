@@ -1,6 +1,6 @@
 # PEFT Doctor: LoRA and QLoRA Fine-Tuning Debugger
 
-PEFT Doctor is a pre-flight checker and troubleshooting toolkit for PEFT, LoRA, and QLoRA fine-tuning. It catches the problems that usually waste a training run: CUDA out of memory, NaN loss, risky learning rates, missing tokenizer padding, wrong LoRA target modules, broken prompt formats, bitsandbytes setup issues, and adapter save/load or merge failures.
+PEFT Doctor is a pre-flight checker, auto-fixer, VRAM estimator, and troubleshooting toolkit for PEFT, LoRA, and QLoRA fine-tuning. It catches the problems that usually waste a training run: CUDA out of memory, NaN loss, risky learning rates, missing tokenizer padding, wrong LoRA target modules, broken prompt formats, bitsandbytes setup issues, and adapter save/load or merge failures.
 
 It is built for the way people actually fine-tune models today: Hugging Face Transformers, PEFT, TRL, bitsandbytes, Google Colab, local CUDA machines, and common Llama, Mistral, Qwen, Gemma, Phi, GPT-2, Falcon, Bloom, and T5-style model families.
 
@@ -116,6 +116,13 @@ peft-doctor fix --dry-run train.py
 peft-doctor fix --input train.py --output train.fixed.py
 peft-doctor fix --dataset data.jsonl --write --pad-token-id 0
 peft-doctor fix --config config.json --dry-run
+peft-doctor estimate --model llama-3-8b --seq-len 2048 --batch-size 2 --qlora
+peft-doctor init --model llama3 --gpu T4 --dataset-type chat --target-vram 16
+peft-doctor dataset-doctor data.jsonl --sequence-length 2048
+peft-doctor inspect-adapter ./adapter
+peft-doctor analyze-log trainer.log
+peft-doctor profiles qwen
+peft-doctor check train.py --explain --html-report report.html --pdf-report report.pdf
 ```
 
 Use it in Python:
@@ -171,6 +178,8 @@ recipe = create_training_recipe(kind="completion-only", model_family="llama")
 | Runtime logs | Device mismatch, disk full, shape mismatch, grad norm spikes | Run `scan-log` on trainer output |
 | Auto-repair | Common config mistakes repeated across projects | Run `fix --dry-run`, then write a patched copy |
 | Recipes | Beginners need a complete first run | Use `recipe NAME --copy ./my-run` and `validate-recipe` |
+| VRAM estimate | Guessing memory before training | Run `estimate` before loading the model |
+| Explain mode | Warnings without context | Use `--explain` for risk score, reasons, and copy-paste fixes |
 
 ## Troubleshooting Recipes
 
@@ -265,6 +274,19 @@ peft-doctor fix --dataset data.jsonl --write --pad-token-id 0
 ```
 
 It can add `tokenizer.pad_token = tokenizer.eos_token`, set `model.config.use_cache = False`, resolve `bf16`/`fp16` conflicts, replace risky LoRA target modules, lower high-risk batch/sequence values, add warmup/logging/save settings, and mask pad labels to `-100`.
+
+### Product Commands
+
+```bash
+peft-doctor init --model llama3 --gpu T4 --dataset-type chat --target-vram 16 --output-dir my-run
+peft-doctor estimate --model llama-3-8b --seq-len 2048 --batch-size 2 --qlora --target-vram 16
+peft-doctor dataset-doctor data.jsonl --sequence-length 2048
+peft-doctor inspect-adapter ./adapter
+peft-doctor analyze-log trainer.log
+peft-doctor notebook-check notebook.ipynb
+peft-doctor profiles llama
+peft-doctor check train.py --explain --html-report report.html --pdf-report report.pdf
+```
 
 ### `peft-doctor check`
 
@@ -467,6 +489,10 @@ peft-doctor version
 ### Validation And Case Studies
 
 - [benchmarks/validation_matrix.md](benchmarks/validation_matrix.md)
+- [docs/before-after.md](docs/before-after.md)
+- [docs/failure-gallery.md](docs/failure-gallery.md)
+- [docs/compatibility-matrix.md](docs/compatibility-matrix.md)
+- [docs/reports-and-screenshots.md](docs/reports-and-screenshots.md)
 - [docs/case-studies/cuda-oom-fixed.md](docs/case-studies/cuda-oom-fixed.md)
 - [docs/case-studies/nan-loss-fixed.md](docs/case-studies/nan-loss-fixed.md)
 - [docs/case-studies/wrong-target-modules-fixed.md](docs/case-studies/wrong-target-modules-fixed.md)

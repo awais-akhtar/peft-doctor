@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "peft-doctor"
-version = "0.5.0"
-description = "Advanced PEFT, LoRA, QLoRA, TRL SFT diagnostics with safe auto-fix, runnable recipes, validation, Colab, and adapter tools."
+version = "0.6.0"
+description = "PEFT Doctor: pre-flight checks, auto-fixes, VRAM estimates, recipes, and failure explanations for LoRA/QLoRA fine-tuning."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
@@ -70,6 +70,11 @@ keywords = [
   "training recipe",
   "validation report",
   "benchmark",
+  "vram estimator",
+  "init wizard",
+  "risk score",
+  "html report",
+  "model profiles",
   "llama",
   "qwen",
   "mistral",

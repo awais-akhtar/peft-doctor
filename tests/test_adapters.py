@@ -48,3 +48,18 @@ def test_diagnose_quantized_merge_warns(tmp_path):
     )
 
     assert any(issue.code == "adapter_merge.quantized_merge_risky" for issue in report.issues)
+
+
+def test_inspect_only_does_not_require_output(tmp_path):
+    adapter = tmp_path / "adapter"
+    adapter.mkdir()
+    (adapter / "adapter_config.json").write_text(
+        json.dumps({"peft_type": "LORA", "base_model_name_or_path": "base/model"}),
+        encoding="utf-8",
+    )
+    (adapter / "adapter_model.safetensors").write_bytes(b"")
+
+    report = diagnose_adapter_merge(adapter=str(adapter), merge_plan=False)
+
+    assert not report.has_errors
+    assert not any(issue.code == "adapter_merge.no_output" for issue in report.issues)
