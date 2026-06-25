@@ -49,6 +49,7 @@ peft-doctor monitor trainer.log
 ```
 
 Reads training logs and reports loss trend, NaN chance, and known runtime failures.
+When PyTorch and CUDA are available, it also reports the current GPU name, allocated memory, reserved memory, total VRAM, and usage percentage.
 
 ## 7. Smart Auto-Tuning
 
@@ -72,7 +73,7 @@ Scores dataset, configuration, hardware, trainer, and overall readiness.
 peft-doctor dataset-intel data.jsonl
 ```
 
-Finds duplicated conversations, empty assistant replies, assistant-only rows, prompt injections, malformed rows, and quality score.
+Finds duplicated conversations, empty assistant replies, assistant-only rows, prompt injections, malformed rows, possible unsupported-answer markers, and quality score.
 
 ## 10. LoRA Efficiency Predictor
 
@@ -88,7 +89,7 @@ Estimates adapter size, expected quality lift, inference slowdown, and merge com
 peft-doctor compare-adapters ./adapter-r16 ./adapter-r64
 ```
 
-Compares rank, alpha, target modules, adapter size, and expected tradeoffs.
+Compares rank, alpha, target modules, adapter size, estimated trainable parameters, memory pressure, expected quality, and tradeoffs.
 
 ## 12. Automatic Upgrade Suggestions
 
@@ -112,7 +113,7 @@ Reports VRAM profile, bf16 support guidance, Flash Attention guidance, and GPU-s
 peft-doctor dataset-report data.jsonl --output dataset-report.html
 ```
 
-Creates an HTML report with length histogram, token histogram, role distribution, language buckets, response length, and outliers.
+Creates an HTML report with length histogram, token histogram, duplicate clusters, role distribution, language buckets, response length, and outliers.
 
 ## 15. Experiment Tracker
 
@@ -137,7 +138,7 @@ Searches bundled PEFT failure guidance without contacting a remote service.
 peft-doctor chat "Why is my loss exploding?" --dataset data.jsonl --log trainer.log
 ```
 
-Answers from local dataset/log checks and the offline knowledge base.
+Answers from local dataset/log checks and the offline knowledge base. If a dataset is provided, it includes a safe preview of the first problematic row when one is found.
 
 ## 18. Project Optimizer
 
@@ -146,7 +147,7 @@ peft-doctor optimize . --html-report optimize-report.html
 peft-doctor optimize . --write
 ```
 
-Combines safe fixer, dataset intelligence, scoring, and an HTML report. Default mode is dry-run.
+Combines safe fixer, dataset intelligence, scoring, explicit optimizer steps, and an HTML report. Default mode is dry-run.
 
 ## 19. Organization Policies
 
@@ -173,4 +174,3 @@ peft-doctor cloud
 ```
 
 Documents the long-term hosted-reporting idea. The local command does not upload anything.
-

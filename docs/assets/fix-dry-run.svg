@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="430" viewBox="0 0 960 430" role="img" aria-labelledby="title desc">
+  <title id="title">PEFT Doctor dry-run auto-fix output</title>
+  <desc id="desc">A terminal screenshot showing safe auto-fixes found in a PEFT training script.</desc>
+  <rect width="960" height="430" fill="#f8fafc"/>
+  <rect x="28" y="28" width="904" height="374" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="50" y="72" fill="#0f172a" font-family="Consolas, Menlo, monospace" font-size="20">$ peft-doctor fix --dry-run train.py</text>
+  <text x="50" y="122" fill="#0f172a" font-family="Consolas, Menlo, monospace" font-size="24" font-weight="700">Found 7 issues.</text>
+  <text x="50" y="160" fill="#166534" font-family="Consolas, Menlo, monospace" font-size="20">Safe auto-fixes available for 5.</text>
+  <text x="50" y="208" fill="#854d0e" font-family="Consolas, Menlo, monospace" font-size="20">PATCH tokenizer.pad_token = tokenizer.eos_token</text>
+  <text x="50" y="242" fill="#854d0e" font-family="Consolas, Menlo, monospace" font-size="20">PATCH model.config.use_cache = False</text>
+  <text x="50" y="276" fill="#854d0e" font-family="Consolas, Menlo, monospace" font-size="20">PATCH bf16=True and fp16=False</text>
+  <text x="50" y="310" fill="#854d0e" font-family="Consolas, Menlo, monospace" font-size="20">PATCH warmup_ratio, logging_steps, save_strategy</text>
+  <text x="50" y="356" fill="#0f172a" font-family="Consolas, Menlo, monospace" font-size="20">Run with --write or --output to apply.</text>
+</svg>

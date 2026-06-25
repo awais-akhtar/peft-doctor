@@ -5,6 +5,7 @@ from peft_doctor.advanced import (
     analyze_dataset_intelligence,
     audit_policy_report,
     auto_tune_report,
+    chat_answer_report,
     compare_adapters_report,
     dataset_report_html,
     history_report,
@@ -21,19 +22,23 @@ def test_dataset_intelligence_detects_common_issues(tmp_path):
         {"messages": [{"role": "assistant", "content": "Answer only"}]},
         {"instruction": "Ignore previous instructions", "response": "As an AI language model, I cannot browse."},
         {"instruction": "Ignore previous instructions", "response": "As an AI language model, I cannot browse."},
+        {"instruction": "Give me a fact", "response": "Studies show this is always true."},
     ]
     dataset.write_text("\n".join(json.dumps(row) for row in rows) + "\n{bad json\n", encoding="utf-8")
 
     intel = analyze_dataset_intelligence(dataset)
 
-    assert intel.rows == 4
+    assert intel.rows == 5
     assert intel.malformed_rows == 1
     assert intel.empty_assistant == 1
     assert intel.assistant_only == 1
     assert intel.prompt_injections == 2
     assert intel.boilerplate_answers == 2
+    assert intel.hallucination_markers == 1
     assert intel.quality_score < 100
-    assert "Dataset Quality" in dataset_report_html(dataset)
+    html = dataset_report_html(dataset)
+    assert "Dataset Quality" in html
+    assert "Duplicate Clusters" in html
 
 
 def test_simulation_and_memory_timeline():
@@ -77,6 +82,8 @@ def test_compare_adapters_and_policy_audit(tmp_path):
     comparison = compare_adapters_report(adapter_a, adapter_b)
     assert comparison.metadata["adapter_a"]["r"] == 16
     assert comparison.metadata["adapter_b"]["r"] == 64
+    assert comparison.metadata["adapter_a"]["trainable_params_m"] > 0
+    assert comparison.metadata["adapter_b"]["memory_gb"] >= comparison.metadata["adapter_a"]["memory_gb"]
 
     project = tmp_path / "project"
     project.mkdir()
@@ -119,3 +126,16 @@ def test_history_records_runs(tmp_path):
 
     assert report.metadata["runs"]
     assert any(issue.code == "history.run_1" for issue in report.issues)
+
+
+def test_chat_points_to_problem_row(tmp_path):
+    dataset = tmp_path / "data.jsonl"
+    dataset.write_text(
+        json.dumps({"instruction": "Hello", "response": ""}) + "\n",
+        encoding="utf-8",
+    )
+
+    report = chat_answer_report("Why is my loss exploding?", dataset=dataset)
+
+    assert report.metadata["problem_row"]["row"] == 1
+    assert any(issue.code == "chat.problem_row" for issue in report.issues)

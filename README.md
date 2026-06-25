@@ -13,6 +13,8 @@ The package works in two ways:
 
 Privacy note: PEFT Doctor's diagnosis, chat, knowledge-base, optimizer, and cloud roadmap commands are local. They do not upload scripts, datasets, logs, adapters, or tokens.
 
+Positioning: **PEFT Doctor is the quality assurance and optimization layer for LoRA/QLoRA fine-tuning.**
+
 ## Problems PEFT Doctor Helps Fix
 
 Developers often find this package while trying to fix one of these PEFT fine-tuning problems:
@@ -57,6 +59,8 @@ Developers often find this package while trying to fix one of these PEFT fine-tu
 - newer PEFT choices such as `all-linear`, rsLoRA, LoftQ, and DoRA tradeoffs
 - disk-full, device mismatch, shape mismatch, overlong sequence, and gradient-norm failures in logs
 - training scripts and JSON configs that can be safely patched before a failed run
+
+Common search phrases this project is built to answer: fix CUDA out of memory in QLoRA, LoRA NaN loss, PEFT wrong target_modules, tokenizer has no pad_token, Qwen EOS token issue, merge LoRA adapter into base model, Colab PEFT fine-tuning setup, TRL SFTTrainer label masking, adapter not saving, adapter loading error, bitsandbytes 4-bit training, VRAM estimator for LLM fine-tuning, dataset doctor for chat templates, and training log analyzer for failed fine-tuning runs.
 
 ## Install
 
@@ -153,6 +157,156 @@ peft-doctor audit . --policy peft-policy.yml
 peft-doctor cloud
 ```
 
+## Feature Checklist
+
+This README is the PyPI long description, so the checklist and examples below are visible from the package page after a release is published.
+
+### Product Features
+
+| Status | Feature | Command or example |
+| --- | --- | --- |
+| [x] | Init wizard that asks model, GPU, dataset type, target VRAM, and writes a training project | `peft-doctor init --model llama3 --gpu T4 --dataset-type chat --target-vram 16 --output-dir my-run` |
+| [x] | VRAM estimator before training | `peft-doctor estimate --model llama-3-8b --seq-len 2048 --batch-size 2 --qlora` |
+| [x] | Dataset doctor for bad rows, empty answers, duplicates, long examples, and chat-role mistakes | `peft-doctor dataset-doctor data.jsonl --sequence-length 2048` |
+| [x] | Adapter doctor before upload or merge | `peft-doctor inspect-adapter ./adapter` |
+| [x] | Training log analyzer for OOM, NaN, overflow, disk, shape, and device errors | `peft-doctor analyze-log trainer.log` |
+| [x] | Model-family profiles for Llama, Qwen, Mistral, Gemma, Phi, Falcon, GPT-2, Bloom, and T5-style models | `peft-doctor profiles qwen` |
+| [x] | Notebook checker for Colab and Jupyter mistakes, including pasted token patterns | `peft-doctor notebook-check notebook.ipynb` |
+| [x] | Explain mode with reasons and copy-paste fixes | `peft-doctor check train.py --explain` |
+| [x] | Risk score for training readiness | `peft-doctor check train.py --explain` |
+| [x] | HTML and PDF reports for teams and GitHub issues | `peft-doctor check train.py --html-report report.html --pdf-report report.pdf` |
+
+### Auto-Repair
+
+| Status | Auto-repair item | Command or behavior |
+| --- | --- | --- |
+| [x] | Dry-run repair report | `peft-doctor fix --dry-run train.py` |
+| [x] | Patch a Python training script to a new file | `peft-doctor fix --input train.py --output train.fixed.py` |
+| [x] | Patch a dataset in place when requested | `peft-doctor fix --dataset data.jsonl --write --pad-token-id 0` |
+| [x] | Dry-run JSON config repair | `peft-doctor fix --config config.json --dry-run` |
+| [x] | Add `tokenizer.pad_token = tokenizer.eos_token` when missing | `peft-doctor fix --dry-run train.py` |
+| [x] | Set `model.config.use_cache = False` when gradient checkpointing is active | `peft-doctor fix --dry-run train.py` |
+| [x] | Block `fp16=True` and `bf16=True` being enabled together | `peft-doctor fix --dry-run train.py` |
+| [x] | Suggest or replace safer LoRA `target_modules` | `peft-doctor fix --input train.py --output train.fixed.py --model-family llama` |
+| [x] | Reduce high-risk batch size and sequence length | `peft-doctor fix --dry-run train.py` |
+| [x] | Add stable `warmup_ratio`, `logging_steps`, and `save_strategy` values | `peft-doctor fix --dry-run train.py` |
+| [x] | Mask pad labels to `-100` in JSON/JSONL data | `peft-doctor fix --dataset data.jsonl --write --pad-token-id 0` |
+| [x] | Warn before targeting `lm_head` or embedding layers | `peft-doctor check train.py --explain` |
+
+### Reproducible Recipes
+
+| Status | Recipe item | Command or folder |
+| --- | --- | --- |
+| [x] | Llama 3 QLoRA Colab project | `recipes/llama3_qlora_colab/` |
+| [x] | Qwen2 QLoRA Colab project | `recipes/qwen2_qlora_colab/` |
+| [x] | Mistral LoRA local project | `recipes/mistral_lora_local/` |
+| [x] | Gemma low-VRAM project | `recipes/gemma_low_vram/` |
+| [x] | Completion-only SFT project | `recipes/completion_only_sft/` |
+| [x] | Each recipe includes README, train script, requirements, sample data, expected output, and tested environment notes | `peft-doctor validate-recipe ./my-run` |
+| [x] | Copy a complete runnable recipe | `peft-doctor recipe llama3-qlora-colab --copy ./my-run` |
+| [x] | Copy a low-VRAM Qwen recipe | `peft-doctor recipe qwen-low-vram --copy ./my-run` |
+| [x] | Validate a copied recipe | `peft-doctor validate-recipe ./my-run` |
+
+### Validation And Trust
+
+| Status | Trust-building item | Location or command |
+| --- | --- | --- |
+| [x] | Before/after broken config and fixed config examples | [docs/before-after.md](https://github.com/awais-akhtar/peft-doctor/blob/main/docs/before-after.md) |
+| [x] | Failure gallery with common PEFT failures and fixes | [docs/failure-gallery.md](https://github.com/awais-akhtar/peft-doctor/blob/main/docs/failure-gallery.md) |
+| [x] | Compatibility matrix for Transformers, PEFT, bitsandbytes, CUDA, and GPUs | [docs/compatibility-matrix.md](https://github.com/awais-akhtar/peft-doctor/blob/main/docs/compatibility-matrix.md) |
+| [x] | Real CLI/report screenshot assets | [docs/reports-and-screenshots.md](https://github.com/awais-akhtar/peft-doctor/blob/main/docs/reports-and-screenshots.md) |
+| [x] | GitHub Actions CI on every push and pull request | `.github/workflows/ci.yml` |
+| [x] | GitHub Actions PyPI publishing with `PYPI_API_TOKEN1` secret | `.github/workflows/publish.yml` |
+| [x] | Validation matrix with model, dataset, GPU, issue, fix, and time saved | [benchmarks/validation_matrix.md](https://github.com/awais-akhtar/peft-doctor/blob/main/benchmarks/validation_matrix.md) |
+| [x] | Benchmark command | `peft-doctor benchmark --recipe llama3-qlora-colab` |
+| [x] | Validation report command | `peft-doctor validate --model qwen --dataset sample.jsonl --report report.md` |
+| [x] | Case study: CUDA OOM fixed | [docs/case-studies/cuda-oom-fixed.md](https://github.com/awais-akhtar/peft-doctor/blob/main/docs/case-studies/cuda-oom-fixed.md) |
+| [x] | Case study: NaN loss fixed | [docs/case-studies/nan-loss-fixed.md](https://github.com/awais-akhtar/peft-doctor/blob/main/docs/case-studies/nan-loss-fixed.md) |
+| [x] | Case study: wrong target modules fixed | [docs/case-studies/wrong-target-modules-fixed.md](https://github.com/awais-akhtar/peft-doctor/blob/main/docs/case-studies/wrong-target-modules-fixed.md) |
+
+### Advanced Local Features
+
+| Status | Feature | Command |
+| --- | --- | --- |
+| [x] | Local expert diagnosis with confidence and recommended fixes | `peft-doctor diagnose train.py --dataset data.jsonl --model llama-3-8b` |
+| [x] | Dry-run training simulation | `peft-doctor simulate --model llama-3-8b --dataset data.jsonl --gpu L4` |
+| [x] | Memory timeline showing load, forward, backward, optimizer, and peak VRAM | `peft-doctor memory-timeline --model llama-3-8b --seq-len 2048 --batch-size 2 --qlora` |
+| [x] | Cloud GPU cost estimator | `peft-doctor estimate-cost --model llama-3-8b --dataset-size 8000 --gpu L4 --gpu A100` |
+| [x] | Hyperparameter advisor for LoRA rank, alpha, and dropout | `peft-doctor advise-hparams --model llama-3-8b --dataset-size 8000 --gpu-vram 24` |
+| [x] | Training health monitor with loss trend, NaN chance, and GPU snapshot when available | `peft-doctor monitor trainer.log` |
+| [x] | Smart auto-tuning for batch size, gradient accumulation, and sequence length | `peft-doctor auto-tune --model llama-3-8b --batch-size 4 --grad-accum 1 --target-vram 16` |
+| [x] | Fine-tuning project score | `peft-doctor score train.py --dataset data.jsonl --gpu T4` |
+| [x] | Dataset intelligence with quality score and issue counts | `peft-doctor dataset-intel data.jsonl` |
+| [x] | LoRA efficiency predictor | `peft-doctor lora-efficiency --model llama-3-8b --rank 32 --dataset-size 8000` |
+| [x] | Adapter comparison with rank, params, memory, size, and quality estimate | `peft-doctor compare-adapters ./adapter-r16 ./adapter-r64` |
+| [x] | Automatic upgrade suggestions for fine-tuning packages | `peft-doctor upgrade-suggestions` |
+| [x] | GPU fingerprinting for common local and cloud GPUs | `peft-doctor gpu-fingerprint "RTX 3060"` |
+| [x] | Dataset visualizer with histograms, role distribution, duplicate clusters, and outliers | `peft-doctor dataset-report data.jsonl --output dataset-report.html` |
+| [x] | Lightweight experiment history | `peft-doctor history . --add-status completed --metric "BLEU +3.1"` |
+| [x] | Offline community knowledge base | `peft-doctor knowledge-base "CUDA illegal memory access"` |
+| [x] | Local chat mode using dataset/log checks and the offline knowledge base | `peft-doctor chat "Why is my loss exploding?" --dataset data.jsonl --log trainer.log` |
+| [x] | One-click project optimizer | `peft-doctor optimize . --html-report optimize-report.html` |
+| [x] | Organization policy audit | `peft-doctor audit . --policy peft-policy.yml` |
+| [x] | PEFT Doctor Cloud roadmap command, local and non-uploading | `peft-doctor cloud` |
+
+## Screenshots
+
+![PEFT Doctor diagnose CLI](https://raw.githubusercontent.com/awais-akhtar/peft-doctor/main/docs/assets/cli-diagnose.svg)
+
+![PEFT Doctor dry-run auto-fix](https://raw.githubusercontent.com/awais-akhtar/peft-doctor/main/docs/assets/fix-dry-run.svg)
+
+![PEFT Doctor dataset report](https://raw.githubusercontent.com/awais-akhtar/peft-doctor/main/docs/assets/dataset-report.svg)
+
+![PEFT Doctor Colab recipe validation](https://raw.githubusercontent.com/awais-akhtar/peft-doctor/main/docs/assets/colab-success.svg)
+
+## Every Command At A Glance
+
+| Command | What it does | Example |
+| --- | --- | --- |
+| `check` | Main pre-flight check with optional risk explanation and reports | `peft-doctor check train.py --explain` |
+| `fix` | Safe auto-repair for scripts, configs, and datasets | `peft-doctor fix --dry-run train.py` |
+| `estimate` | VRAM estimate before loading a model | `peft-doctor estimate --model llama-3-8b --seq-len 2048 --batch-size 2 --qlora` |
+| `init` | Generate a full training project | `peft-doctor init --model llama3 --gpu T4 --dataset-type chat --target-vram 16` |
+| `diagnose` | Local expert-style diagnosis | `peft-doctor diagnose train.py --dataset data.jsonl` |
+| `simulate` | Predict start success, VRAM, ETA, and likely failures | `peft-doctor simulate --model llama-3-8b --gpu L4` |
+| `memory-timeline` | Show where memory spikes | `peft-doctor memory-timeline --model llama-3-8b --qlora` |
+| `estimate-cost` | Compare cloud GPU cost and time | `peft-doctor estimate-cost --model llama-3-8b --dataset-size 8000 --gpu L4 --gpu A100` |
+| `advise-hparams` | Recommend LoRA rank, alpha, and dropout | `peft-doctor advise-hparams --model llama-3-8b --dataset-size 8000` |
+| `monitor` | Analyze training health from logs and local GPU state | `peft-doctor monitor trainer.log` |
+| `auto-tune` | Keep effective batch while lowering memory | `peft-doctor auto-tune --model llama-3-8b --batch-size 4 --grad-accum 1 --target-vram 16` |
+| `score` | Score dataset, config, hardware, trainer, and project readiness | `peft-doctor score train.py --dataset data.jsonl` |
+| `dataset-intel` | Dataset quality intelligence | `peft-doctor dataset-intel data.jsonl` |
+| `dataset-report` | HTML dataset visualizer | `peft-doctor dataset-report data.jsonl --output dataset-report.html` |
+| `dataset-doctor` | Dataset pre-flight checker | `peft-doctor dataset-doctor data.jsonl --sequence-length 2048` |
+| `inspect-dataset` | Inspect local dataset samples | `peft-doctor inspect-dataset data.jsonl` |
+| `lora-efficiency` | Predict adapter size, gain, slowdown, and merge compatibility | `peft-doctor lora-efficiency --model llama-3-8b --rank 32` |
+| `compare-adapters` | Compare two adapters | `peft-doctor compare-adapters ./adapter-a ./adapter-b` |
+| `inspect-adapter` | Check a saved adapter before upload or merge | `peft-doctor inspect-adapter ./adapter` |
+| `adapter-check` | Check an adapter merge plan | `peft-doctor adapter-check --base-model base --adapter adapter --output-dir merged` |
+| `merge-adapter` | Merge a LoRA adapter into a base model | `peft-doctor merge-adapter --base-model base --adapter adapter --output-dir merged` |
+| `upgrade-suggestions` | Check installed package versions | `peft-doctor upgrade-suggestions` |
+| `gpu-fingerprint` | GPU-specific advice | `peft-doctor gpu-fingerprint "RTX 3060"` |
+| `history` | Local experiment history | `peft-doctor history . --add-status completed --metric "BLEU +3.1"` |
+| `knowledge-base` | Search bundled PEFT failure guidance | `peft-doctor knowledge-base "CUDA illegal memory access"` |
+| `chat` | Ask a local troubleshooting question | `peft-doctor chat "Why is my loss exploding?" --dataset data.jsonl` |
+| `optimize` | Combine fixer, dataset checks, score, and report | `peft-doctor optimize . --html-report optimize-report.html` |
+| `audit` | Enforce team fine-tuning policy | `peft-doctor audit . --policy peft-policy.yml` |
+| `cloud` | Show the long-term cloud reporting roadmap | `peft-doctor cloud` |
+| `recipe` | Generate config recipes or copy runnable projects | `peft-doctor recipe llama3-qlora-colab --copy ./my-run` |
+| `validate-recipe` | Validate copied recipe files | `peft-doctor validate-recipe ./my-run` |
+| `benchmark` | Print recipe validation benchmark entry | `peft-doctor benchmark --recipe llama3-qlora-colab` |
+| `validate` | Write a markdown validation report | `peft-doctor validate --model qwen --dataset sample.jsonl --report report.md` |
+| `profiles` | Show built-in model-family profile | `peft-doctor profiles llama` |
+| `targets` | Recommend LoRA target modules | `peft-doctor targets --model meta-llama/Llama-3-8B` |
+| `safe-config` | Print safe LoRA/QLoRA starter config | `peft-doctor safe-config --family llama` |
+| `scan-log` | Scan logs for runtime failures | `peft-doctor scan-log trainer.log` |
+| `analyze-log` | Alias-friendly log analyzer | `peft-doctor analyze-log trainer.log` |
+| `scan-notebook` | Scan notebooks for PEFT and Colab mistakes | `peft-doctor scan-notebook notebook.ipynb` |
+| `notebook-check` | Notebook checker alias | `peft-doctor notebook-check notebook.ipynb` |
+| `env` | Show Python, CUDA, and package environment | `peft-doctor env` |
+| `colab` | Print a Colab setup cell | `peft-doctor colab` |
+| `version` | Print installed version | `peft-doctor version` |
+
 Use it in Python:
 
 ```python
@@ -218,7 +372,7 @@ recipe = create_training_recipe(kind="completion-only", model_family="llama")
 
 ## Troubleshooting Recipes
 
-For a longer problem-by-problem guide, see [docs/troubleshooting.md](docs/troubleshooting.md).
+For a longer problem-by-problem guide, see [docs/troubleshooting.md](https://github.com/awais-akhtar/peft-doctor/blob/main/docs/troubleshooting.md).
 
 ### Fix CUDA Out of Memory in PEFT or QLoRA
 
@@ -295,11 +449,11 @@ peft-doctor merge-adapter \
 
 ## Commands
 
-Full command reference with examples: [docs/commands.md](docs/commands.md).
+Full command reference with examples: [docs/commands.md](https://github.com/awais-akhtar/peft-doctor/blob/main/docs/commands.md).
 
-Advanced feature guide: [docs/advanced-features.md](docs/advanced-features.md).
+Advanced feature guide: [docs/advanced-features.md](https://github.com/awais-akhtar/peft-doctor/blob/main/docs/advanced-features.md).
 
-Privacy and security notes: [docs/privacy-and-security.md](docs/privacy-and-security.md).
+Privacy and security notes: [docs/privacy-and-security.md](https://github.com/awais-akhtar/peft-doctor/blob/main/docs/privacy-and-security.md).
 
 ### `peft-doctor fix`
 
@@ -527,14 +681,14 @@ peft-doctor version
 
 ### Validation And Case Studies
 
-- [benchmarks/validation_matrix.md](benchmarks/validation_matrix.md)
-- [docs/before-after.md](docs/before-after.md)
-- [docs/failure-gallery.md](docs/failure-gallery.md)
-- [docs/compatibility-matrix.md](docs/compatibility-matrix.md)
-- [docs/reports-and-screenshots.md](docs/reports-and-screenshots.md)
-- [docs/case-studies/cuda-oom-fixed.md](docs/case-studies/cuda-oom-fixed.md)
-- [docs/case-studies/nan-loss-fixed.md](docs/case-studies/nan-loss-fixed.md)
-- [docs/case-studies/wrong-target-modules-fixed.md](docs/case-studies/wrong-target-modules-fixed.md)
+- [benchmarks/validation_matrix.md](https://github.com/awais-akhtar/peft-doctor/blob/main/benchmarks/validation_matrix.md)
+- [docs/before-after.md](https://github.com/awais-akhtar/peft-doctor/blob/main/docs/before-after.md)
+- [docs/failure-gallery.md](https://github.com/awais-akhtar/peft-doctor/blob/main/docs/failure-gallery.md)
+- [docs/compatibility-matrix.md](https://github.com/awais-akhtar/peft-doctor/blob/main/docs/compatibility-matrix.md)
+- [docs/reports-and-screenshots.md](https://github.com/awais-akhtar/peft-doctor/blob/main/docs/reports-and-screenshots.md)
+- [docs/case-studies/cuda-oom-fixed.md](https://github.com/awais-akhtar/peft-doctor/blob/main/docs/case-studies/cuda-oom-fixed.md)
+- [docs/case-studies/nan-loss-fixed.md](https://github.com/awais-akhtar/peft-doctor/blob/main/docs/case-studies/nan-loss-fixed.md)
+- [docs/case-studies/wrong-target-modules-fixed.md](https://github.com/awais-akhtar/peft-doctor/blob/main/docs/case-studies/wrong-target-modules-fixed.md)
 
 ## Python API
 
@@ -694,8 +848,8 @@ The repository includes GitHub Actions for CI and PyPI publishing.
 4. Push a version tag to publish to PyPI:
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.7.1
+git push origin v0.7.1
 ```
 
 Manual TestPyPI publishing is available from the `Publish Python Package` workflow in GitHub Actions.

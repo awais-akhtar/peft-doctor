@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "peft-doctor"
-version = "0.7.0"
+version = "0.7.1"
 description = "PEFT Doctor: local diagnosis, pre-flight checks, auto-fixes, VRAM and cost estimates, recipes, and failure explanations for LoRA/QLoRA fine-tuning."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -14,10 +14,18 @@ authors = [
 ]
 keywords = [
   "peft",
+  "peft doctor",
   "lora",
+  "lora doctor",
   "qlora",
+  "qlora doctor",
   "fine-tuning",
+  "fine tuning debugger",
+  "fine tuning doctor",
   "finetuning",
+  "llm fine tuning",
+  "llm fine tuning debug",
+  "llm fine tuning qa",
   "transformers",
   "huggingface",
   "pytorch",
@@ -26,16 +34,25 @@ keywords = [
   "sfttrainer",
   "bitsandbytes",
   "cuda oom",
+  "qlora cuda oom",
   "cuda out of memory",
   "nan loss",
+  "lora nan loss",
   "target modules",
   "target_modules",
+  "lora target_modules",
+  "peft target modules",
   "tokenizer padding",
   "pad token",
   "adapter merge",
+  "lora adapter merge",
   "merge_and_unload",
   "peft adapter",
+  "adapter loading error",
+  "adapter not saving",
   "google colab",
+  "colab qlora",
+  "colab peft fine tuning",
   "sft",
   "sfttrainer",
   "instruction tuning",
@@ -79,9 +96,16 @@ keywords = [
   "training simulator",
   "cost estimator",
   "dataset report",
+  "dataset doctor",
+  "training log analyzer",
+  "vram calculator",
+  "notebook checker",
+  "inspect adapter",
   "experiment tracker",
   "policy audit",
   "project optimizer",
+  "mlops",
+  "llmops",
   "llama",
   "qwen",
   "mistral",

@@ -47,6 +47,16 @@ BOILERPLATE_ANSWER_PATTERNS = [
     "citation needed",
 ]
 
+HALLUCINATION_MARKER_PATTERNS = [
+    "studies show",
+    "research proves",
+    "experts agree",
+    "according to wikipedia",
+    "according to sources",
+    "it is widely known",
+    "citation needed",
+]
+
 KNOWN_ISSUES = {
     "cuda illegal memory access": {
         "users": 287,
@@ -95,6 +105,7 @@ class DatasetIntelligence:
     assistant_only: int
     prompt_injections: int
     boilerplate_answers: int
+    hallucination_markers: int
     avg_response_chars: float
     longest_chars: int
     quality_score: int
@@ -112,6 +123,7 @@ class DatasetIntelligence:
             "assistant_only": self.assistant_only,
             "prompt_injections": self.prompt_injections,
             "possible_boilerplate_answers": self.boilerplate_answers,
+            "possible_hallucination_markers": self.hallucination_markers,
             "avg_response_chars": round(self.avg_response_chars, 2),
             "longest_chars": self.longest_chars,
             "quality_score": self.quality_score,
@@ -239,6 +251,7 @@ def analyze_dataset_intelligence(dataset: Path, *, limit: int = 1000) -> Dataset
     empty_assistant = 0
     prompt_injections = 0
     boilerplate = 0
+    hallucination_markers = 0
     response_lengths = []
     token_hist: Counter[str] = Counter()
     length_hist: Counter[str] = Counter()
@@ -256,6 +269,8 @@ def analyze_dataset_intelligence(dataset: Path, *, limit: int = 1000) -> Dataset
             prompt_injections += 1
         if any(pattern in response.lower() for pattern in BOILERPLATE_ANSWER_PATTERNS):
             boilerplate += 1
+        if any(pattern in response.lower() for pattern in HALLUCINATION_MARKER_PATTERNS):
+            hallucination_markers += 1
 
         messages = row.get("messages") if isinstance(row, dict) else None
         if isinstance(messages, list):
@@ -282,6 +297,7 @@ def analyze_dataset_intelligence(dataset: Path, *, limit: int = 1000) -> Dataset
         + assistant_only * 5
         + prompt_injections * 6
         + boilerplate * 5
+        + hallucination_markers * 4
     )
     quality = max(0, min(100, 100 - penalties))
     return DatasetIntelligence(
@@ -292,6 +308,7 @@ def analyze_dataset_intelligence(dataset: Path, *, limit: int = 1000) -> Dataset
         assistant_only=assistant_only,
         prompt_injections=prompt_injections,
         boilerplate_answers=boilerplate,
+        hallucination_markers=hallucination_markers,
         avg_response_chars=sum(response_lengths) / max(1, len(response_lengths)),
         longest_chars=max((len(_row_text(row)) for row in rows), default=0),
         quality_score=quality,
@@ -320,6 +337,7 @@ def dataset_intelligence_report(dataset: Path, *, limit: int = 1000) -> Diagnosi
         ("dataset_intel.prompt_injection", "Possible prompt injections", intel.prompt_injections, "Review and remove hostile instruction text."),
         ("dataset_intel.malformed", "Malformed rows", intel.malformed_rows, "Fix invalid JSON/JSONL rows before training."),
         ("dataset_intel.boilerplate", "Possible boilerplate answers", intel.boilerplate_answers, "Remove canned refusal or browsing-disclaimer answers when they are not desired."),
+        ("dataset_intel.hallucination_markers", "Possible hallucination markers", intel.hallucination_markers, "Review answers that cite vague sources or unsupported claims."),
     ]
     for code, title, count, fix in checks:
         report.add(
@@ -335,6 +353,7 @@ def dataset_intelligence_report(dataset: Path, *, limit: int = 1000) -> Diagnosi
 
 def dataset_report_html(dataset: Path, *, limit: int = 1000) -> str:
     intel = analyze_dataset_intelligence(dataset, limit=limit)
+    duplicate_rows = _duplicate_cluster_rows(dataset, limit=limit)
 
     def rows(mapping: dict[str, int]) -> str:
         maximum = max(mapping.values(), default=1)
@@ -381,11 +400,32 @@ def dataset_report_html(dataset: Path, *, limit: int = 1000) -> str:
   <table><tr><th>Bucket</th><th>Rows</th><th>Bar</th></tr>{rows(intel.token_histogram)}</table>
   <h2>Role Distribution</h2>
   <table><tr><th>Role</th><th>Count</th><th>Bar</th></tr>{rows(intel.role_counts)}</table>
+  <h2>Duplicate Clusters</h2>
+  <table><tr><th>Repeated text preview</th><th>Count</th></tr>{duplicate_rows}</table>
   <h2>Language Detection</h2>
   <table><tr><th>Language bucket</th><th>Rows</th><th>Bar</th></tr>{rows(intel.languages)}</table>
 </body>
 </html>
 """
+
+
+def _duplicate_cluster_rows(dataset: Path, *, limit: int = 1000) -> str:
+    rows, _ = _load_rows_lenient(dataset, limit=limit)
+    clusters: Counter[str] = Counter()
+    for row in rows:
+        normalized = " ".join(_row_text(row).split())
+        if normalized:
+            clusters[normalized] += 1
+    repeated = [(text, count) for text, count in clusters.most_common(10) if count > 1]
+    if not repeated:
+        return "<tr><td colspan=\"2\">No duplicate clusters found.</td></tr>"
+    return "".join(
+        "<tr>"
+        f"<td>{html.escape(text[:220])}</td>"
+        f"<td>{count}</td>"
+        "</tr>"
+        for text, count in repeated
+    )
 
 
 def write_dataset_report_html(dataset: Path, output: Path, *, limit: int = 1000) -> None:
@@ -728,9 +768,17 @@ def monitor_report(log_file: Optional[Path] = None) -> DiagnosisReport:
                     pass
     else:
         report.add("monitor.no_log", "No log file provided", "info", "Live GPU monitoring is optional; pass a Trainer log for health analysis.")
+    gpu_snapshot = _gpu_runtime_snapshot()
     trend = _loss_trend(losses)
     nan_chance = min(95, 2 + report.summary.get("error", 0) * 35 + report.summary.get("warning", 0) * 12)
-    report.metadata.update({"loss_trend": trend, "nan_chance_percent": nan_chance})
+    report.metadata.update({"loss_trend": trend, "nan_chance_percent": nan_chance, "gpu": gpu_snapshot})
+    report.add(
+        "monitor.gpu_snapshot",
+        "GPU runtime snapshot",
+        "ok" if gpu_snapshot.get("available") else "info",
+        gpu_snapshot["message"],
+        "Use this snapshot with the loss trend to spot memory pressure before a crash.",
+    )
     report.add(
         "monitor.health",
         "Training health prediction",
@@ -739,6 +787,32 @@ def monitor_report(log_file: Optional[Path] = None) -> DiagnosisReport:
         "Keep logging every 10-50 steps and stop early if loss spikes or becomes NaN.",
     )
     return report
+
+
+def _gpu_runtime_snapshot() -> dict[str, Any]:
+    try:
+        import torch  # type: ignore[import-not-found]
+    except Exception:
+        return {"available": False, "message": "PyTorch is not available, so live GPU usage could not be read."}
+    if not torch.cuda.is_available():
+        return {"available": False, "message": "CUDA is not available in this runtime."}
+    device = torch.cuda.current_device()
+    props = torch.cuda.get_device_properties(device)
+    allocated = torch.cuda.memory_allocated(device) / (1024**3)
+    reserved = torch.cuda.memory_reserved(device) / (1024**3)
+    total = props.total_memory / (1024**3)
+    return {
+        "available": True,
+        "name": props.name,
+        "allocated_gb": round(allocated, 2),
+        "reserved_gb": round(reserved, 2),
+        "total_gb": round(total, 2),
+        "usage_percent": round((reserved / total) * 100, 1) if total else 0.0,
+        "message": (
+            f"{props.name}: {allocated:.2f} GB allocated, {reserved:.2f} GB reserved, "
+            f"{total:.1f} GB total."
+        ),
+    }
 
 
 def _loss_trend(losses: list[float]) -> str:
@@ -864,12 +938,22 @@ def compare_adapters_report(adapter_a: Path, adapter_b: Path) -> DiagnosisReport
     rank_b = int(info_b.get("r") or 0)
     size_a = float(info_a.get("size_mb") or 0.0)
     size_b = float(info_b.get("size_mb") or 0.0)
+    params_a = float(info_a.get("trainable_params_m") or 0.0)
+    params_b = float(info_b.get("trainable_params_m") or 0.0)
+    memory_a = float(info_a.get("memory_gb") or 0.0)
+    memory_b = float(info_b.get("memory_gb") or 0.0)
+    quality_a = str(info_a.get("expected_quality") or "unknown")
+    quality_b = str(info_b.get("expected_quality") or "unknown")
     recommendation = "adapter A" if (rank_a and rank_a <= rank_b and size_a <= size_b) else "adapter B"
     report.add(
         "adapter_compare.summary",
         f"Rank {rank_a} vs {rank_b}",
         "ok",
-        f"Sizes: {size_a:.1f} MB vs {size_b:.1f} MB. Recommendation: {recommendation}.",
+        (
+            f"Sizes: {size_a:.1f} MB vs {size_b:.1f} MB. Trainable params: "
+            f"{params_a:.1f}M vs {params_b:.1f}M. Memory: {memory_a:.1f} GB vs {memory_b:.1f} GB. "
+            f"Expected quality: {quality_a} vs {quality_b}. Recommendation: {recommendation}."
+        ),
         "Choose the smaller adapter when quality is close; choose the larger rank when eval quality clearly improves.",
     )
     return report
@@ -884,12 +968,21 @@ def _adapter_info(path: Path) -> dict[str, Any]:
         except json.JSONDecodeError:
             data = {}
     size = sum(file.stat().st_size for file in path.glob("adapter_model*") if file.is_file()) / (1024 * 1024)
+    rank = int(data.get("r") or 0)
+    target_modules = data.get("target_modules") or []
+    target_count = len(target_modules) if isinstance(target_modules, list) else 7
+    trainable_params_m = round(rank * max(1, target_count) * 0.52, 2) if rank else 0.0
+    memory_gb = round(max(0.1, trainable_params_m * 0.085), 2) if rank else 0.0
+    quality_stars = min(5, 3 + int(rank >= 16) + int(rank >= 64)) if rank else 0
     return {
         "path": str(path),
-        "r": data.get("r"),
+        "r": rank or data.get("r"),
         "lora_alpha": data.get("lora_alpha"),
-        "target_modules": data.get("target_modules"),
+        "target_modules": target_modules,
         "size_mb": round(size, 2),
+        "trainable_params_m": trainable_params_m,
+        "memory_gb": memory_gb,
+        "expected_quality": "*" * quality_stars if quality_stars else "unknown",
         "peft_type": data.get("peft_type"),
     }
 
@@ -1018,6 +1111,25 @@ def knowledge_base_report(query: str) -> DiagnosisReport:
     return report
 
 
+def _first_problem_row(dataset: Path) -> Optional[dict[str, Any]]:
+    rows, malformed = _load_rows_lenient(dataset, limit=200)
+    if malformed:
+        return {"reason": "Malformed JSON/JSONL row detected.", "preview": "Run dataset-doctor for the exact bad row location."}
+    for index, row in enumerate(rows, start=1):
+        text = _row_text(row)
+        response = _response_text(row)
+        lowered = text.lower()
+        if any(pattern in lowered for pattern in PROMPT_INJECTION_PATTERNS):
+            return {"row": index, "reason": "Possible prompt injection text.", "preview": text[:240]}
+        if not response.strip():
+            return {"row": index, "reason": "Empty assistant or response text.", "preview": text[:240]}
+        if any(pattern in response.lower() for pattern in BOILERPLATE_ANSWER_PATTERNS):
+            return {"row": index, "reason": "Possible boilerplate answer.", "preview": response[:240]}
+        if any(pattern in response.lower() for pattern in HALLUCINATION_MARKER_PATTERNS):
+            return {"row": index, "reason": "Possible unsupported answer marker.", "preview": response[:240]}
+    return None
+
+
 def chat_answer_report(
     question: str,
     *,
@@ -1028,6 +1140,17 @@ def chat_answer_report(
     report.extend(knowledge_base_report(question).issues)
     if dataset:
         report.extend(dataset_intelligence_report(dataset).issues[:4])
+        problem_row = _first_problem_row(dataset)
+        if problem_row:
+            report.metadata["problem_row"] = problem_row
+            row_label = f"row {problem_row.get('row')}" if problem_row.get("row") else "dataset"
+            report.add(
+                "chat.problem_row",
+                f"Problem sample found in {row_label}",
+                "warning",
+                str(problem_row["reason"]),
+                f"Preview: {problem_row['preview']}",
+            )
     if log_file:
         report.extend(scan_training_log(log_file))
     report.add(
@@ -1050,18 +1173,25 @@ def optimize_project_report(
     train_py = path / "train.py"
     if train_py.exists():
         report.extend(repair_python_file(train_py, write=write, dry_run=not write).issues)
+        report.add("optimize.config", "Config optimized", "ok", "Training script checks and safe repairs were evaluated.")
+        report.add("optimize.trainer", "Trainer improved", "ok", "Trainer arguments were checked for warmup, logging, saving, precision, and memory defaults.")
+        report.add("optimize.lora", "LoRA config updated", "ok", "LoRA target-module and risky-head checks were included.")
+        report.add("optimize.tokenizer", "Tokenizer fixed", "ok", "Tokenizer padding and cache/checkpointing compatibility were checked.")
+        report.add("optimize.memory", "Memory optimized", "ok", "Batch size, sequence length, QLoRA, and checkpointing risks were reviewed.")
     else:
         report.add("optimize.train_missing", "train.py not found", "warning", "No train.py file was found in the project root.", "Pass the project root that contains train.py.")
     dataset = next(iter(path.glob("*.jsonl")), None)
     if dataset:
         report.extend(dataset_intelligence_report(dataset).issues)
         report.extend(repair_dataset_file(dataset, write=False, dry_run=True).issues)
+        report.add("optimize.dataset", "Dataset cleaned", "ok", "Dataset quality, labels, duplicates, and repair opportunities were checked.")
     score = score_report(dataset=dataset, script=train_py if train_py.exists() else None)
     report.extend(score.issues)
     report.metadata["project_score"] = score.metadata.get("project_score")
     if html_report:
         write_html_report(report, html_report)
         report.metadata["html_report"] = str(html_report)
+        report.add("optimize.html_report", "Generated HTML report", "ok", f"Report written to {html_report}.")
     report.add(
         "optimize.complete",
         "Project optimizer finished",

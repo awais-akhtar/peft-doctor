@@ -2,6 +2,18 @@
 
 PEFT Doctor can generate terminal, markdown, JSON, HTML, and PDF reports.
 
+## Screenshot Previews
+
+These images are generated from PEFT Doctor output examples and are safe to reuse in the project documentation.
+
+![Diagnose command](assets/cli-diagnose.svg)
+
+![Dry-run auto-fix](assets/fix-dry-run.svg)
+
+![Dataset report](assets/dataset-report.svg)
+
+![Colab recipe validation](assets/colab-success.svg)
+
 ## Dry-Run Auto-Fix
 
 ```text

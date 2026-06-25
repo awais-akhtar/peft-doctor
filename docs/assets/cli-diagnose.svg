@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="520" viewBox="0 0 960 520" role="img" aria-labelledby="title desc">
+  <title id="title">PEFT Doctor diagnose command output</title>
+  <desc id="desc">A terminal screenshot showing a local PEFT fine-tuning diagnosis.</desc>
+  <rect width="960" height="520" fill="#0f172a"/>
+  <rect x="28" y="28" width="904" height="464" rx="10" fill="#111827" stroke="#334155"/>
+  <circle cx="58" cy="56" r="7" fill="#f87171"/>
+  <circle cx="82" cy="56" r="7" fill="#fbbf24"/>
+  <circle cx="106" cy="56" r="7" fill="#34d399"/>
+  <text x="46" y="104" fill="#cbd5e1" font-family="Consolas, Menlo, monospace" font-size="20">$ peft-doctor diagnose train.py --dataset data.jsonl --model llama-3-8b --gpu RTX-4090</text>
+  <text x="46" y="152" fill="#f8fafc" font-family="Consolas, Menlo, monospace" font-size="24" font-weight="700">Diagnosis</text>
+  <text x="46" y="196" fill="#86efac" font-family="Consolas, Menlo, monospace" font-size="20">OK   Gradient checkpointing is enabled</text>
+  <text x="46" y="230" fill="#fde68a" font-family="Consolas, Menlo, monospace" font-size="20">WARN use_cache is still True while checkpointing is active</text>
+  <text x="46" y="264" fill="#fde68a" font-family="Consolas, Menlo, monospace" font-size="20">WARN Dataset contains empty assistant responses</text>
+  <text x="46" y="298" fill="#fde68a" font-family="Consolas, Menlo, monospace" font-size="20">WARN fp16 can overflow on some consumer GPU runs</text>
+  <text x="46" y="346" fill="#f8fafc" font-family="Consolas, Menlo, monospace" font-size="20">Confidence: 97%</text>
+  <text x="46" y="386" fill="#93c5fd" font-family="Consolas, Menlo, monospace" font-size="20">Recommended fixes:</text>
+  <text x="70" y="420" fill="#dbeafe" font-family="Consolas, Menlo, monospace" font-size="20">1. Set model.config.use_cache = False</text>
+  <text x="70" y="454" fill="#dbeafe" font-family="Consolas, Menlo, monospace" font-size="20">2. Remove blank assistant samples before training</text>
+</svg>

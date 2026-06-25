@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="520" viewBox="0 0 960 520" role="img" aria-labelledby="title desc">
+  <title id="title">PEFT Doctor dataset report preview</title>
+  <desc id="desc">A report screenshot showing dataset quality, histograms, role distribution, and duplicate clusters.</desc>
+  <rect width="960" height="520" fill="#eef2f7"/>
+  <rect x="42" y="34" width="876" height="452" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="72" y="84" fill="#111827" font-family="Arial, sans-serif" font-size="30" font-weight="700">PEFT Doctor Dataset Report</text>
+  <text x="72" y="132" fill="#166534" font-family="Arial, sans-serif" font-size="34" font-weight="700">Dataset Quality: 91/100</text>
+  <rect x="72" y="170" width="380" height="38" fill="#f8fafc" stroke="#d1d5db"/>
+  <text x="90" y="195" fill="#334155" font-family="Arial, sans-serif" font-size="18">Rows scanned: 8,000</text>
+  <rect x="72" y="218" width="380" height="38" fill="#f8fafc" stroke="#d1d5db"/>
+  <text x="90" y="243" fill="#334155" font-family="Arial, sans-serif" font-size="18">Empty assistant responses: 0</text>
+  <rect x="72" y="266" width="380" height="38" fill="#f8fafc" stroke="#d1d5db"/>
+  <text x="90" y="291" fill="#334155" font-family="Arial, sans-serif" font-size="18">Duplicate clusters: 3</text>
+  <text x="520" y="184" fill="#111827" font-family="Arial, sans-serif" font-size="21" font-weight="700">Token histogram</text>
+  <rect x="520" y="206" width="260" height="22" fill="#bfdbfe"/>
+  <rect x="520" y="240" width="330" height="22" fill="#93c5fd"/>
+  <rect x="520" y="274" width="190" height="22" fill="#60a5fa"/>
+  <text x="520" y="344" fill="#111827" font-family="Arial, sans-serif" font-size="21" font-weight="700">Role distribution</text>
+  <rect x="520" y="366" width="300" height="22" fill="#bbf7d0"/>
+  <rect x="520" y="400" width="285" height="22" fill="#86efac"/>
+  <text x="72" y="376" fill="#111827" font-family="Arial, sans-serif" font-size="21" font-weight="700">Outliers</text>
+  <text x="72" y="414" fill="#475569" font-family="Arial, sans-serif" font-size="18">Long rows, prompt injection text, malformed JSON, and duplicates are listed locally.</text>
+</svg>
