@@ -44,3 +44,19 @@ peft-doctor check train.py --pdf-report report.pdf
 ```
 
 Use PDF reports when a team needs a portable run summary without sharing local logs.
+
+## Dataset Visualizer
+
+```bash
+peft-doctor dataset-report data.jsonl --output dataset-report.html
+```
+
+The dataset report includes length histograms, token buckets, role distribution, language buckets, average response length, longest conversations, duplicate counts, and outlier signals.
+
+## Optimization Report
+
+```bash
+peft-doctor optimize . --html-report optimize-report.html
+```
+
+Use this report when opening GitHub issues or reviewing a fine-tuning project with a team.

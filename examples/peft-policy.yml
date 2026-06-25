@@ -1,0 +1,5 @@
+policy:
+  max_seq_len: 4096
+  require_bf16: true
+  forbid_fp16: true
+  require_dataset_validation: true

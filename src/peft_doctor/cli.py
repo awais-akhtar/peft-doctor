@@ -11,6 +11,29 @@ from rich.console import Console
 from rich.table import Table
 
 from ._version import __version__
+from .advanced import (
+    advise_hyperparameters,
+    ai_diagnosis_report,
+    audit_policy_report,
+    auto_tune_report,
+    chat_answer_report,
+    cloud_plan_report,
+    compare_adapters_report,
+    dataset_intelligence_report,
+    diagnosis_text,
+    estimate_cost_report,
+    gpu_fingerprint_report,
+    history_report,
+    knowledge_base_report,
+    lora_efficiency_report,
+    memory_timeline,
+    monitor_report,
+    optimize_project_report,
+    score_report,
+    simulate_training,
+    upgrade_suggestions_report,
+    write_dataset_report_html,
+)
 from .adapters import diagnose_adapter_merge, merge_lora_adapter
 from .configs import create_safe_bnb_config, create_safe_lora_config, create_safe_training_args
 from .datasets import check_dataset
@@ -430,6 +453,313 @@ def init_command(
     if report.has_errors:
         raise typer.Exit(2)
     console.print(f"[green]Created project from {recipe}. Next: cd {output_dir} && python train.py --dry-run[/green]")
+
+
+@app.command("diagnose")
+def diagnose_command(
+    script: Optional[Path] = typer.Argument(None, help="Optional training script, usually train.py."),
+    dataset: Optional[Path] = typer.Option(None, "--dataset", "-d", help="Dataset path to include in diagnosis."),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="Model id or family, for example llama-3-8b."),
+    gpu: Optional[str] = typer.Option(None, "--gpu", help="GPU name, for example RTX 4090, T4, L4, or A100."),
+    sequence_length: int = typer.Option(2048, "--sequence-length", help="Training sequence length."),
+    batch_size: int = typer.Option(1, "--batch-size", help="Per-device train batch size."),
+    qlora: bool = typer.Option(True, "--qlora/--no-qlora", help="Whether the run uses QLoRA."),
+    output: str = typer.Option("diagnosis", "--output", "-o", help="diagnosis, table, json, or markdown."),
+) -> None:
+    """Explain why a PEFT run is likely to fail and what to fix first."""
+
+    report = ai_diagnosis_report(
+        script,
+        dataset=dataset,
+        model=model,
+        gpu=gpu,
+        sequence_length=sequence_length,
+        batch_size=batch_size,
+        qlora=qlora,
+    )
+    if output == "diagnosis":
+        console.print(diagnosis_text(report), markup=False)
+    else:
+        _print_report(report, output)
+
+
+@app.command("simulate")
+def simulate_command(
+    model: str = typer.Option("llama-3-8b", "--model", "-m", help="Model id or family."),
+    dataset: Optional[Path] = typer.Option(None, "--dataset", "-d", help="Dataset path for row-count planning."),
+    gpu: Optional[str] = typer.Option(None, "--gpu", help="GPU name, for example T4, L4, A100, RTX 4090."),
+    seq_len: int = typer.Option(2048, "--seq-len", help="Training sequence length."),
+    batch_size: int = typer.Option(1, "--batch-size", help="Per-device train batch size."),
+    qlora: bool = typer.Option(True, "--qlora/--no-qlora", help="Whether the run uses QLoRA."),
+    eval_batch_size: int = typer.Option(1, "--eval-batch-size", help="Evaluation batch size."),
+    save_steps: int = typer.Option(500, "--save-steps", help="Checkpoint save interval."),
+    total_steps: int = typer.Option(1000, "--total-steps", help="Planned training steps."),
+    disk_free_gb: Optional[float] = typer.Option(None, "--disk-free-gb", help="Free disk estimate for checkpoint planning."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Dry-run a training plan without loading or training a model."""
+
+    report = simulate_training(
+        model=model,
+        dataset=dataset,
+        gpu=gpu,
+        seq_len=seq_len,
+        batch_size=batch_size,
+        qlora=qlora,
+        eval_batch_size=eval_batch_size,
+        save_steps=save_steps,
+        total_steps=total_steps,
+        disk_free_gb=disk_free_gb,
+    )
+    if output == "table":
+        for step in report.metadata.get("steps", []):
+            console.print(f"{step}... simulated")
+    _print_report(report, output)
+
+
+@app.command("memory-timeline")
+def memory_timeline_command(
+    model: str = typer.Option("llama-3-8b", "--model", "-m", help="Model id or family."),
+    seq_len: int = typer.Option(2048, "--seq-len", help="Training sequence length."),
+    batch_size: int = typer.Option(1, "--batch-size", help="Per-device train batch size."),
+    qlora: bool = typer.Option(True, "--qlora/--no-qlora", help="Whether the run uses QLoRA."),
+    gradient_checkpointing: bool = typer.Option(True, "--gradient-checkpointing/--no-gradient-checkpointing", help="Whether checkpointing is enabled."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Show where memory spikes happen during a training step."""
+
+    _print_report(
+        memory_timeline(
+            model,
+            seq_len=seq_len,
+            batch_size=batch_size,
+            qlora=qlora,
+            gradient_checkpointing=gradient_checkpointing,
+        ),
+        output,
+    )
+
+
+@app.command("estimate-cost")
+def estimate_cost_command(
+    model: str = typer.Option("llama-3-8b", "--model", "-m", help="Model id or family."),
+    dataset_size: int = typer.Option(8000, "--dataset-size", help="Number of training examples."),
+    seq_len: int = typer.Option(2048, "--seq-len", help="Training sequence length."),
+    batch_size: int = typer.Option(1, "--batch-size", help="Per-device train batch size."),
+    qlora: bool = typer.Option(True, "--qlora/--no-qlora", help="Whether the run uses QLoRA."),
+    gpu: Optional[list[str]] = typer.Option(None, "--gpu", help="GPU option to compare. Repeat for multiple GPUs."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Estimate cloud GPU time and cost for a fine-tuning plan."""
+
+    _print_report(
+        estimate_cost_report(
+            model=model,
+            dataset_size=dataset_size,
+            seq_len=seq_len,
+            batch_size=batch_size,
+            qlora=qlora,
+            gpus=gpu,
+        ),
+        output,
+    )
+
+
+@app.command("advise-hparams")
+def advise_hparams_command(
+    model: str = typer.Option("llama-3-8b", "--model", "-m", help="Model id or family."),
+    dataset_size: int = typer.Option(..., "--dataset-size", help="Number of training examples."),
+    gpu_vram: Optional[float] = typer.Option(None, "--gpu-vram", help="GPU VRAM in GB."),
+    task: str = typer.Option("chat", "--task", help="Task type: chat, completion, instruction, or tool."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Recommend LoRA rank, alpha, and dropout for the run."""
+
+    _print_report(
+        advise_hyperparameters(model=model, dataset_size=dataset_size, gpu_vram_gb=gpu_vram, task=task),
+        output,
+    )
+
+
+@app.command("monitor")
+def monitor_command(
+    log_file: Optional[Path] = typer.Argument(None, help="Optional Trainer log file."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Analyze live or saved training logs for health and NaN risk."""
+
+    _print_report(monitor_report(log_file), output)
+
+
+@app.command("auto-tune")
+def auto_tune_command(
+    model: str = typer.Option("llama-3-8b", "--model", "-m", help="Model id or family."),
+    batch_size: int = typer.Option(4, "--batch-size", help="Current per-device train batch size."),
+    grad_accum: int = typer.Option(1, "--grad-accum", help="Current gradient accumulation steps."),
+    seq_len: int = typer.Option(2048, "--seq-len", help="Current sequence length."),
+    target_vram: float = typer.Option(16.0, "--target-vram", help="Target GPU VRAM in GB."),
+    qlora: bool = typer.Option(True, "--qlora/--no-qlora", help="Whether the run uses QLoRA."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Suggest a lower-memory setup while preserving effective batch size."""
+
+    _print_report(
+        auto_tune_report(
+            model=model,
+            batch_size=batch_size,
+            grad_accum=grad_accum,
+            seq_len=seq_len,
+            target_vram_gb=target_vram,
+            qlora=qlora,
+        ),
+        output,
+    )
+
+
+@app.command("score")
+def score_command(
+    script: Optional[Path] = typer.Argument(None, help="Optional training script."),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="Model id or family."),
+    dataset: Optional[Path] = typer.Option(None, "--dataset", "-d", help="Dataset path."),
+    gpu: Optional[str] = typer.Option(None, "--gpu", help="GPU name."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Score dataset, configuration, hardware, and trainer readiness."""
+
+    _print_report(score_report(model=model, dataset=dataset, gpu=gpu, script=script), output)
+
+
+@app.command("dataset-intel")
+def dataset_intel_command(
+    dataset: Path = typer.Argument(..., help="Dataset path."),
+    limit: int = typer.Option(1000, "--limit", help="Maximum rows to scan."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Find duplicates, empty answers, prompt injections, outliers, and quality score."""
+
+    _print_report(dataset_intelligence_report(dataset, limit=limit), output)
+
+
+@app.command("dataset-report")
+def dataset_report_command(
+    dataset: Path = typer.Argument(..., help="Dataset path."),
+    output_file: Path = typer.Option(Path("dataset-report.html"), "--output", "-o", help="HTML report path."),
+    limit: int = typer.Option(1000, "--limit", help="Maximum rows to scan."),
+) -> None:
+    """Generate a static HTML dataset visualizer report."""
+
+    write_dataset_report_html(dataset, output_file, limit=limit)
+    console.print(f"[green]Dataset report written to {output_file}[/green]")
+
+
+@app.command("lora-efficiency")
+def lora_efficiency_command(
+    model: str = typer.Option("llama-3-8b", "--model", "-m", help="Model id or family."),
+    rank: int = typer.Option(16, "--rank", "-r", help="LoRA rank."),
+    dataset_size: int = typer.Option(8000, "--dataset-size", help="Number of training examples."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Predict adapter size, expected gain, slowdown, and merge compatibility."""
+
+    _print_report(lora_efficiency_report(model=model, rank=rank, dataset_size=dataset_size), output)
+
+
+@app.command("compare-adapters")
+def compare_adapters_command(
+    adapter_a: Path = typer.Argument(..., help="First adapter directory."),
+    adapter_b: Path = typer.Argument(..., help="Second adapter directory."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Compare two local LoRA adapter directories."""
+
+    _print_report(compare_adapters_report(adapter_a, adapter_b), output)
+
+
+@app.command("upgrade-suggestions")
+def upgrade_suggestions_command(
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Check package versions and suggest safe upgrades."""
+
+    _print_report(upgrade_suggestions_report(), output)
+
+
+@app.command("gpu-fingerprint")
+def gpu_fingerprint_command(
+    gpu: Optional[str] = typer.Argument(None, help="GPU name. If omitted, PEFT Doctor checks local CUDA."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Identify GPU-specific fine-tuning risks and precision advice."""
+
+    _print_report(gpu_fingerprint_report(gpu), output)
+
+
+@app.command("history")
+def history_command(
+    root: Path = typer.Argument(Path("."), help="Project root."),
+    add_status: Optional[str] = typer.Option(None, "--add-status", help="Record a run status such as OOM, NaN, completed, or best."),
+    metric: Optional[str] = typer.Option(None, "--metric", help="Optional metric text, for example 'BLEU +3.1'."),
+    note: Optional[str] = typer.Option(None, "--note", help="Optional note for the run history."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Show or append lightweight PEFT experiment history."""
+
+    _print_report(history_report(root, add_status=add_status, metric=metric, note=note), output)
+
+
+@app.command("knowledge-base")
+def knowledge_base_command(
+    query: str = typer.Argument(..., help="Issue to search, for example 'CUDA illegal memory access'."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Search the built-in offline PEFT failure knowledge base."""
+
+    _print_report(knowledge_base_report(query), output)
+
+
+@app.command("chat")
+def chat_command(
+    question: Optional[str] = typer.Argument(None, help="Question, for example 'Why is my loss exploding?'"),
+    dataset: Optional[Path] = typer.Option(None, "--dataset", "-d", help="Dataset path to inspect."),
+    log_file: Optional[Path] = typer.Option(None, "--log", help="Trainer log file to inspect."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Ask a local PEFT Doctor question without sending data to a remote service."""
+
+    question_text = question or typer.prompt("Question")
+    _print_report(chat_answer_report(question_text, dataset=dataset, log_file=log_file), output)
+
+
+@app.command("optimize")
+def optimize_command(
+    project: Path = typer.Argument(Path("."), help="Project directory."),
+    write: bool = typer.Option(False, "--write", help="Apply safe file fixes. Default is dry-run."),
+    html_report: Optional[Path] = typer.Option(None, "--html-report", help="Write an HTML optimization report."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Run one local project optimizer pass over config, dataset, trainer, and score."""
+
+    _print_report(optimize_project_report(project, write=write, html_report=html_report), output)
+
+
+@app.command("audit")
+def audit_command(
+    project: Path = typer.Argument(Path("."), help="Project directory."),
+    policy: Path = typer.Option(..., "--policy", "-p", help="Policy file in simple YAML or JSON."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Audit a project against team PEFT policies."""
+
+    _print_report(audit_policy_report(project, policy), output)
+
+
+@app.command("cloud")
+def cloud_command(
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Show the privacy-first PEFT Doctor Cloud roadmap."""
+
+    _print_report(cloud_plan_report(), output)
 
 
 def _print_recipe(recipe_data: dict[str, object], output: str) -> None:

@@ -16,7 +16,7 @@ Runtime -> Change runtime type -> Hardware accelerator -> GPU
 ```
 
 For private or gated models, add your own Hugging Face token to Colab Secrets as
-`HF_TOKEN`, then log in from the notebook without showing the token value:
+`HF_TOKEN`, then log in from the notebook without printing the secret:
 
 ```python
 from google.colab import userdata

@@ -28,7 +28,7 @@ Add this GitHub Actions secret:
 PYPI_API_TOKEN1
 ```
 
-The token value should be the full PyPI token, starting with `pypi-`.
+Use a scoped PyPI API token for this secret. Do not commit it to the repository.
 
 Pushes to `main` build the package and attempt a PyPI upload. The workflow uses
 `skip-existing: true`, so a repeated push with the same package version will not
@@ -50,8 +50,8 @@ src/peft_doctor/_version.py
 Commit the change, tag it, and push the tag:
 
 ```bash
-git tag v0.6.0
-git push origin v0.6.0
+git tag v0.7.0
+git push origin v0.7.0
 ```
 
 The `pypi` environment should require manual approval before release.

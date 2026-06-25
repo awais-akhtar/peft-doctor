@@ -1,6 +1,6 @@
 # PEFT Doctor: LoRA and QLoRA Fine-Tuning Debugger
 
-PEFT Doctor is a pre-flight checker, auto-fixer, VRAM estimator, and troubleshooting toolkit for PEFT, LoRA, and QLoRA fine-tuning. It catches the problems that usually waste a training run: CUDA out of memory, NaN loss, risky learning rates, missing tokenizer padding, wrong LoRA target modules, broken prompt formats, bitsandbytes setup issues, and adapter save/load or merge failures.
+PEFT Doctor is a local diagnosis layer, pre-flight checker, auto-fixer, VRAM and cost estimator, and troubleshooting toolkit for PEFT, LoRA, and QLoRA fine-tuning. It catches the problems that usually waste a training run: CUDA out of memory, NaN loss, risky learning rates, missing tokenizer padding, wrong LoRA target modules, broken prompt formats, bitsandbytes setup issues, and adapter save/load or merge failures.
 
 It is built for the way people actually fine-tune models today: Hugging Face Transformers, PEFT, TRL, bitsandbytes, Google Colab, local CUDA machines, and common Llama, Mistral, Qwen, Gemma, Phi, GPT-2, Falcon, Bloom, and T5-style model families.
 
@@ -9,6 +9,9 @@ The package works in two ways:
 - Use `peft-doctor` from the terminal before training.
 - Use `diagnose_peft(...)` inside your training script with real `model`, `tokenizer`, `peft_config`, `training_args`, and dataset objects.
 - Use `peft-doctor fix --dry-run train.py` to preview safe auto-repairs before writing a patched file.
+- Use `peft-doctor diagnose train.py` for a local expert-style explanation of why a run may fail and what to fix first.
+
+Privacy note: PEFT Doctor's diagnosis, chat, knowledge-base, optimizer, and cloud roadmap commands are local. They do not upload scripts, datasets, logs, adapters, or tokens.
 
 ## Problems PEFT Doctor Helps Fix
 
@@ -125,6 +128,31 @@ peft-doctor profiles qwen
 peft-doctor check train.py --explain --html-report report.html --pdf-report report.pdf
 ```
 
+Advanced local diagnosis and planning:
+
+```bash
+peft-doctor diagnose train.py --dataset data.jsonl --model llama-3-8b --gpu "RTX 4090"
+peft-doctor simulate --model llama-3-8b --dataset data.jsonl --gpu L4 --seq-len 2048 --batch-size 2
+peft-doctor memory-timeline --model llama-3-8b --seq-len 4096 --batch-size 1 --qlora
+peft-doctor estimate-cost --model llama-3-8b --dataset-size 8000 --gpu L4 --gpu A100
+peft-doctor advise-hparams --model llama-3-8b --dataset-size 8000 --gpu-vram 24
+peft-doctor auto-tune --model llama-3-8b --batch-size 4 --grad-accum 1 --target-vram 16
+peft-doctor score train.py --dataset data.jsonl --gpu T4
+peft-doctor dataset-intel data.jsonl
+peft-doctor dataset-report data.jsonl --output dataset-report.html
+peft-doctor lora-efficiency --model llama-3-8b --rank 32 --dataset-size 8000
+peft-doctor compare-adapters ./adapter-r16 ./adapter-r64
+peft-doctor upgrade-suggestions
+peft-doctor gpu-fingerprint "RTX 3060"
+peft-doctor monitor trainer.log
+peft-doctor history . --add-status completed --metric "BLEU +3.1"
+peft-doctor knowledge-base "CUDA illegal memory access"
+peft-doctor chat "Why is my loss exploding?" --dataset data.jsonl --log trainer.log
+peft-doctor optimize . --html-report optimize-report.html
+peft-doctor audit . --policy peft-policy.yml
+peft-doctor cloud
+```
+
 Use it in Python:
 
 ```python
@@ -178,6 +206,13 @@ recipe = create_training_recipe(kind="completion-only", model_family="llama")
 | Runtime logs | Device mismatch, disk full, shape mismatch, grad norm spikes | Run `scan-log` on trainer output |
 | Auto-repair | Common config mistakes repeated across projects | Run `fix --dry-run`, then write a patched copy |
 | Recipes | Beginners need a complete first run | Use `recipe NAME --copy ./my-run` and `validate-recipe` |
+| Local diagnosis | Need an expert explanation before training | Run `diagnose`, `simulate`, `score`, and `optimize` |
+| Memory timeline | Need to know where VRAM spikes | Run `memory-timeline` |
+| Cloud planning | Need cost estimates before renting GPUs | Run `estimate-cost` |
+| Hyperparameters | Unsure about LoRA rank/alpha/dropout | Run `advise-hparams` |
+| Dataset intelligence | Need quality score, outliers, and HTML visualizer | Run `dataset-intel` and `dataset-report` |
+| Adapter comparison | Need to choose between adapters | Run `compare-adapters` |
+| Team policies | Need standards for every fine-tuning project | Run `audit --policy peft-policy.yml` |
 | VRAM estimate | Guessing memory before training | Run `estimate` before loading the model |
 | Explain mode | Warnings without context | Use `--explain` for risk score, reasons, and copy-paste fixes |
 
@@ -261,6 +296,10 @@ peft-doctor merge-adapter \
 ## Commands
 
 Full command reference with examples: [docs/commands.md](docs/commands.md).
+
+Advanced feature guide: [docs/advanced-features.md](docs/advanced-features.md).
+
+Privacy and security notes: [docs/privacy-and-security.md](docs/privacy-and-security.md).
 
 ### `peft-doctor fix`
 

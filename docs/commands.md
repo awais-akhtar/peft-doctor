@@ -21,6 +21,26 @@ peft-doctor check
 peft-doctor fix
 peft-doctor init
 peft-doctor estimate
+peft-doctor diagnose
+peft-doctor simulate
+peft-doctor memory-timeline
+peft-doctor estimate-cost
+peft-doctor advise-hparams
+peft-doctor monitor
+peft-doctor auto-tune
+peft-doctor score
+peft-doctor dataset-intel
+peft-doctor dataset-report
+peft-doctor lora-efficiency
+peft-doctor compare-adapters
+peft-doctor upgrade-suggestions
+peft-doctor gpu-fingerprint
+peft-doctor history
+peft-doctor knowledge-base
+peft-doctor chat
+peft-doctor optimize
+peft-doctor audit
+peft-doctor cloud
 peft-doctor dataset-doctor
 peft-doctor inspect-adapter
 peft-doctor analyze-log
@@ -190,6 +210,246 @@ Estimate expected VRAM before training:
 peft-doctor estimate --model llama-3-8b --seq-len 2048 --batch-size 2 --qlora
 peft-doctor estimate --model qwen2.5-7b --seq-len 4096 --batch-size 1 --qlora --target-vram 24
 ```
+
+## `peft-doctor diagnose`
+
+Local expert-style diagnosis for a training script, dataset, model, and GPU. This command does not call an external LLM and does not upload files.
+
+```bash
+peft-doctor diagnose train.py
+peft-doctor diagnose train.py --dataset data.jsonl --model llama-3-8b --gpu "RTX 4090"
+peft-doctor diagnose train.py --dataset data.jsonl --sequence-length 4096 --batch-size 2 --output markdown
+```
+
+It explains likely failure reasons, confidence, recommended fixes, and estimated success rate after fixes.
+
+## `peft-doctor simulate`
+
+Dry-run a training plan without loading or training a model.
+
+```bash
+peft-doctor simulate --model llama-3-8b --dataset data.jsonl --gpu L4
+peft-doctor simulate --model qwen2.5-7b --gpu T4 --seq-len 2048 --batch-size 1 --save-steps 100
+peft-doctor simulate --model llama-3-8b --disk-free-gb 20 --total-steps 3000
+```
+
+It predicts start success, peak VRAM, rough ETA, evaluation OOM risk, and checkpoint disk risk.
+
+## `peft-doctor memory-timeline`
+
+Show where memory spikes happen inside a training step.
+
+```bash
+peft-doctor memory-timeline --model llama-3-8b --seq-len 2048 --batch-size 2 --qlora
+peft-doctor memory-timeline --model mistral-7b --seq-len 4096 --batch-size 1 --no-gradient-checkpointing
+```
+
+Phases include load, forward, backward, optimizer, and peak memory.
+
+## `peft-doctor estimate-cost`
+
+Estimate rough cloud GPU time and cost.
+
+```bash
+peft-doctor estimate-cost --model llama-3-8b --dataset-size 8000 --gpu L4 --gpu A100
+peft-doctor estimate-cost --model qwen2.5-14b --dataset-size 20000 --seq-len 4096 --batch-size 1
+```
+
+Use this before renting cloud GPUs. Prices are planning estimates, not billing guarantees.
+
+## `peft-doctor advise-hparams`
+
+Recommend LoRA rank, alpha, and dropout from model size, dataset size, task, and VRAM.
+
+```bash
+peft-doctor advise-hparams --model llama-3-8b --dataset-size 8000 --gpu-vram 24
+peft-doctor advise-hparams --model gemma-2b --dataset-size 700 --gpu-vram 12 --task completion
+```
+
+The output is a starter recommendation. Confirm with a small validation run before a long job.
+
+## `peft-doctor monitor`
+
+Analyze a saved Trainer log and predict training health.
+
+```bash
+peft-doctor monitor trainer.log
+peft-doctor monitor trainer_state.jsonl --output markdown
+```
+
+It reports loss trend, NaN risk, and known log failures such as CUDA OOM, device mismatch, disk-full, shape mismatch, and gradient spikes.
+
+## `peft-doctor auto-tune`
+
+Suggest a lower-memory configuration while preserving effective batch size.
+
+```bash
+peft-doctor auto-tune --model llama-3-8b --batch-size 4 --grad-accum 1 --target-vram 16
+peft-doctor auto-tune --model qwen2.5-7b --batch-size 2 --grad-accum 4 --seq-len 4096 --target-vram 24
+```
+
+Typical output recommends smaller `batch_size`, higher `gradient_accumulation_steps`, and safer sequence length.
+
+## `peft-doctor score`
+
+Score dataset, configuration, hardware, and trainer readiness.
+
+```bash
+peft-doctor score train.py --dataset data.jsonl --gpu T4
+peft-doctor score --dataset data.jsonl --output json
+```
+
+Scores are useful for CI gates, issue reports, and comparing project readiness before training.
+
+## `peft-doctor dataset-intel`
+
+Dataset intelligence finds duplicates, empty assistant messages, assistant-only rows, prompt injections, malformed JSONL rows, boilerplate answers, outliers, language buckets, and a quality score.
+
+```bash
+peft-doctor dataset-intel data.jsonl
+peft-doctor dataset-intel data.jsonl --limit 5000 --output markdown
+```
+
+Use this when the model is not learning, answers blank, repeats data, or learns unwanted refusal text.
+
+## `peft-doctor dataset-report`
+
+Generate a static HTML dataset visualizer.
+
+```bash
+peft-doctor dataset-report data.jsonl
+peft-doctor dataset-report data.jsonl --output reports/dataset-report.html --limit 5000
+```
+
+The report includes conversation length histogram, token histogram, duplicate counts, language buckets, role distribution, average response length, longest conversations, and outliers. The HTML escapes dataset text and stays local.
+
+## `peft-doctor lora-efficiency`
+
+Predict LoRA adapter size, expected gain, inference slowdown, and merge compatibility before training.
+
+```bash
+peft-doctor lora-efficiency --model llama-3-8b --rank 16 --dataset-size 8000
+peft-doctor lora-efficiency --model qwen2.5-14b --rank 64 --dataset-size 50000 --output json
+```
+
+Use this to compare rank choices before spending GPU time.
+
+## `peft-doctor compare-adapters`
+
+Compare two local LoRA adapter directories.
+
+```bash
+peft-doctor compare-adapters ./adapter-r16 ./adapter-r64
+peft-doctor compare-adapters ./run-a/adapter ./run-b/adapter --output markdown
+```
+
+It compares rank, alpha, target modules, adapter file size, and gives a practical recommendation.
+
+## `peft-doctor upgrade-suggestions`
+
+Check installed fine-tuning package versions and suggest safe upgrades.
+
+```bash
+peft-doctor upgrade-suggestions
+peft-doctor upgrade-suggestions --output json
+```
+
+This is useful when a project has old `transformers`, `peft`, `trl`, or `bitsandbytes` versions.
+
+## `peft-doctor gpu-fingerprint`
+
+Identify GPU-specific risks.
+
+```bash
+peft-doctor gpu-fingerprint
+peft-doctor gpu-fingerprint "RTX 3060"
+peft-doctor gpu-fingerprint "RTX 4090" --output markdown
+```
+
+It reports VRAM profile, bf16 advice, Flash Attention guidance, and known consumer-GPU precision cautions.
+
+## `peft-doctor history`
+
+Track lightweight PEFT run history without installing MLflow.
+
+```bash
+peft-doctor history .
+peft-doctor history . --add-status OOM --note "batch_size=4 failed on T4"
+peft-doctor history . --add-status completed --metric "BLEU +3.1"
+peft-doctor history . --add-status best --metric "eval_loss 0.82"
+```
+
+History is written locally to `.peft-doctor/history.jsonl`.
+
+## `peft-doctor knowledge-base`
+
+Search the built-in offline failure knowledge base.
+
+```bash
+peft-doctor knowledge-base "CUDA illegal memory access"
+peft-doctor knowledge-base "nan loss"
+peft-doctor knowledge-base "adapter merge" --output markdown
+```
+
+This command uses bundled knowledge only. It does not query a remote service.
+
+## `peft-doctor chat`
+
+Ask a local PEFT Doctor question and optionally include a dataset or log file.
+
+```bash
+peft-doctor chat "Why is my loss exploding?"
+peft-doctor chat "Why is my model answering blank?" --dataset data.jsonl
+peft-doctor chat "What caused this failure?" --log trainer.log
+```
+
+The answer is built from local checks and the offline knowledge base. It does not send your question or files to a hosted model.
+
+## `peft-doctor optimize`
+
+Run a one-pass project optimizer across script, dataset, reports, and score.
+
+```bash
+peft-doctor optimize .
+peft-doctor optimize . --html-report optimize-report.html
+peft-doctor optimize . --write
+```
+
+Default mode is dry-run. Pass `--write` only after reviewing safe fixes.
+
+## `peft-doctor audit`
+
+Audit a project against a team policy.
+
+Example policy:
+
+```yaml
+policy:
+  max_seq_len: 4096
+  require_bf16: true
+  forbid_fp16: true
+  require_dataset_validation: true
+```
+
+Command:
+
+```bash
+peft-doctor audit . --policy peft-policy.yml
+peft-doctor audit ./training-project --policy policy.json --output json
+```
+
+Use this in CI when a team wants consistent fine-tuning standards.
+
+## `peft-doctor cloud`
+
+Show the privacy-first PEFT Doctor Cloud roadmap.
+
+```bash
+peft-doctor cloud
+peft-doctor cloud --output markdown
+```
+
+The local CLI does not upload logs, datasets, adapters, configs, or tokens. This command documents the long-term hosted-reporting idea only.
 
 ## `peft-doctor dataset-doctor`
 
