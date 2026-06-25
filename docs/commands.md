@@ -2,6 +2,12 @@
 
 This page explains every `peft-doctor` command, when to use it, and practical examples.
 
+If you are new to PEFT fine-tuning, start with the beginner guide first:
+
+[Beginner Command Guide](https://github.com/awais-akhtar/peft-doctor/blob/main/docs/beginner-command-guide.md)
+
+That guide explains each command with a copy-paste example, how to read the result, and what to do next.
+
 Install first:
 
 ```bash

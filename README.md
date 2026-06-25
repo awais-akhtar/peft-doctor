@@ -157,6 +157,40 @@ peft-doctor audit . --policy peft-policy.yml
 peft-doctor cloud
 ```
 
+## Beginner-Friendly Usage
+
+If you are new to LoRA or QLoRA, start with the beginner guide:
+
+[Beginner Command Guide](https://github.com/awais-akhtar/peft-doctor/blob/main/docs/beginner-command-guide.md)
+
+It explains every command in this format:
+
+- when to use the command
+- a copy-paste example
+- how to understand the output
+- what to do next
+
+The shortest safe workflow for a new project is:
+
+```bash
+peft-doctor env
+peft-doctor dataset-doctor data.jsonl
+peft-doctor check train.py --dataset data.jsonl --model llama-3-8b --explain
+peft-doctor fix --dry-run train.py
+peft-doctor optimize . --html-report peft-doctor-report.html
+```
+
+If a command prints `ERROR`, fix that before training. If it prints `WARNING`, run a tiny smoke training before spending hours on a full run.
+
+## Real Output, Not Fake Claims
+
+PEFT Doctor separates real checks from planning estimates:
+
+- Commands like `check`, `dataset-doctor`, `inspect-adapter`, `scan-log`, `notebook-check`, `fix`, `validate-recipe`, and `audit` inspect real local files.
+- Commands like `estimate`, `simulate`, `memory-timeline`, `estimate-cost`, `advise-hparams`, and `lora-efficiency` are planning estimates. They help choose safer settings, but they do not replace a real training/evaluation run.
+- `benchmark` prints a validation-matrix style entry for documented recipe checks. It is not a live ML benchmark.
+- `cloud` describes the long-term roadmap. The local command does not upload anything.
+
 ## Feature Checklist
 
 This README is the PyPI long description, so the checklist and examples below are visible from the package page after a release is published.
@@ -450,6 +484,8 @@ peft-doctor merge-adapter \
 ## Commands
 
 Full command reference with examples: [docs/commands.md](https://github.com/awais-akhtar/peft-doctor/blob/main/docs/commands.md).
+
+Beginner command guide: [docs/beginner-command-guide.md](https://github.com/awais-akhtar/peft-doctor/blob/main/docs/beginner-command-guide.md).
 
 Advanced feature guide: [docs/advanced-features.md](https://github.com/awais-akhtar/peft-doctor/blob/main/docs/advanced-features.md).
 
@@ -848,8 +884,8 @@ The repository includes GitHub Actions for CI and PyPI publishing.
 4. Push a version tag to publish to PyPI:
 
 ```bash
-git tag v0.7.1
-git push origin v0.7.1
+git tag v0.7.2
+git push origin v0.7.2
 ```
 
 Manual TestPyPI publishing is available from the `Publish Python Package` workflow in GitHub Actions.
