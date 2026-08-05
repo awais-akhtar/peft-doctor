@@ -1,0 +1,190 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "peft-doctor"
+version = "0.9.0"
+description = "PEFT Doctor: local pre-flight checks, auto-fixes, checkpoint recovery, reproducibility, and failure explanations for LoRA/QLoRA fine-tuning."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+authors = [
+  { name = "Awais Akhtar" }
+]
+keywords = [
+  "peft",
+  "peft doctor",
+  "lora",
+  "lora doctor",
+  "qlora",
+  "qlora doctor",
+  "fine-tuning",
+  "fine tuning debugger",
+  "fine tuning doctor",
+  "finetuning",
+  "llm fine tuning",
+  "llm fine tuning debug",
+  "llm fine tuning qa",
+  "transformers",
+  "huggingface",
+  "pytorch",
+  "torch",
+  "trl",
+  "sfttrainer",
+  "bitsandbytes",
+  "cuda oom",
+  "qlora cuda oom",
+  "cuda out of memory",
+  "nan loss",
+  "lora nan loss",
+  "target modules",
+  "target_modules",
+  "lora target_modules",
+  "peft target modules",
+  "tokenizer padding",
+  "pad token",
+  "adapter merge",
+  "lora adapter merge",
+  "merge_and_unload",
+  "peft adapter",
+  "adapter loading error",
+  "adapter not saving",
+  "google colab",
+  "colab qlora",
+  "colab peft fine tuning",
+  "sft",
+  "sfttrainer",
+  "instruction tuning",
+  "chat template",
+  "gradient checkpointing",
+  "flash attention",
+  "train eval leakage",
+  "label masking",
+  "save_pretrained",
+  "deepspeed",
+  "fsdp",
+  "ddp",
+  "torch compile",
+  "packing",
+  "completion masking",
+  "rope scaling",
+  "context length",
+  "special tokens",
+  "modules_to_save",
+  "assistant only loss",
+  "completion only loss",
+  "all-linear",
+  "rslora",
+  "dora",
+  "loftq",
+  "moe lora",
+  "qwen eos token",
+  "sft recipe",
+  "trl sft",
+  "auto fix",
+  "auto repair",
+  "training recipe",
+  "validation report",
+  "benchmark",
+  "vram estimator",
+  "init wizard",
+  "risk score",
+  "html report",
+  "model profiles",
+  "rule based diagnosis",
+  "training simulator",
+  "cost estimator",
+  "dataset report",
+  "dataset doctor",
+  "training log analyzer",
+  "vram calculator",
+  "notebook checker",
+  "inspect adapter",
+  "experiment tracker",
+  "policy audit",
+  "project optimizer",
+  "checkpoint resume",
+  "trainer checkpoint checker",
+  "adapter integrity",
+  "safetensors validator",
+  "training disk estimator",
+  "token length analyzer",
+  "generation config checker",
+  "accelerate config checker",
+  "deepspeed config checker",
+  "reproducibility manifest",
+  "mlops",
+  "llmops",
+  "llama",
+  "qwen",
+  "mistral",
+  "llm",
+  "machine-learning",
+  "debugging"
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Software Development :: Quality Assurance",
+  "Typing :: Typed"
+]
+dependencies = [
+  "packaging>=23.0",
+  "rich>=13.7",
+  "PyYAML>=6.0",
+  "typer>=0.12",
+  "typing-extensions>=4.8; python_version < '3.11'"
+]
+
+[project.optional-dependencies]
+ml = [
+  "accelerate>=1.10",
+  "bitsandbytes>=0.47; platform_system != 'Windows'",
+  "datasets>=3.0",
+  "peft>=0.17",
+  "protobuf>=4.25",
+  "safetensors>=0.4",
+  "sentencepiece>=0.1.99",
+  "torch>=2.4",
+  "transformers>=4.56",
+  "trl>=0.23"
+]
+dev = [
+  "build>=1.2",
+  "pytest>=8.0",
+  "ruff>=0.5",
+  "twine>=5.0"
+]
+
+[project.urls]
+Homepage = "https://github.com/awais-akhtar/peft-doctor"
+Repository = "https://github.com/awais-akhtar/peft-doctor"
+Issues = "https://github.com/awais-akhtar/peft-doctor/issues"
+Documentation = "https://github.com/awais-akhtar/peft-doctor#readme"
+
+[project.scripts]
+peft-doctor = "peft_doctor.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "B"]
+ignore = ["B008", "E501"]

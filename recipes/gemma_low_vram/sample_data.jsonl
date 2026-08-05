@@ -1,0 +1,3 @@
+{"messages": [{"role": "user", "content": "Give a memory tip."}, {"role": "assistant", "content": "Use 4-bit loading and keep sequence length low at first."}]}
+{"messages": [{"role": "user", "content": "What should I log?"}, {"role": "assistant", "content": "Log loss every few steps while debugging."}]}
+

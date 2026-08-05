@@ -1,0 +1,764 @@
+"""Dataset and prompt-format checks."""
+
+from __future__ import annotations
+
+import csv
+import json
+from pathlib import Path
+from typing import Any, Iterable, Optional, Union
+
+from .report import DiagnosisReport
+from .utils import bool_value, first_value, get_value
+
+
+TEXT_COLUMNS = ["text", "prompt", "completion", "response", "output", "instruction", "input"]
+RESPONSE_COLUMNS = ["response", "completion", "output", "answer"]
+INSTRUCTION_COLUMNS = ["instruction", "prompt", "question", "input"]
+IGNORE_LABEL_ID = -100
+
+
+def load_dataset_records(path: Union[str, Path], limit: int = 50) -> list[dict[str, Any]]:
+    path = Path(path)
+    suffix = path.suffix.lower()
+
+    if suffix == ".jsonl":
+        records = []
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                records.append(json.loads(line))
+                if len(records) >= limit:
+                    break
+        return records
+
+    if suffix == ".json":
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return [row for row in data[:limit] if isinstance(row, dict)]
+        if isinstance(data, dict):
+            for value in data.values():
+                if isinstance(value, list):
+                    return [row for row in value[:limit] if isinstance(row, dict)]
+            return [data]
+        return []
+
+    if suffix == ".csv":
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle)
+            return [row for _, row in zip(range(limit), reader)]
+
+    if suffix == ".txt":
+        records = []
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                text = line.strip()
+                if text:
+                    records.append({"text": text})
+                if len(records) >= limit:
+                    break
+        return records
+
+    raise ValueError(f"Unsupported dataset extension: {path.suffix}")
+
+
+def sample_dataset(dataset: Any, limit: int = 50) -> list[Any]:
+    if dataset is None:
+        return []
+    if isinstance(dataset, (str, Path)):
+        return load_dataset_records(dataset, limit=limit)
+
+    records = []
+    try:
+        length = min(len(dataset), limit)
+        for index in range(length):
+            records.append(dataset[index])
+        return records
+    except Exception:
+        pass
+
+    if isinstance(dataset, Iterable):
+        for index, row in enumerate(dataset):
+            if index >= limit:
+                break
+            records.append(row)
+    return records
+
+
+def _row_text(row: Any) -> str:
+    if isinstance(row, str):
+        return row
+    if not isinstance(row, dict):
+        return ""
+    pieces = []
+    for column in TEXT_COLUMNS:
+        value = row.get(column)
+        if isinstance(value, str):
+            pieces.append(value)
+    return "\n".join(pieces)
+
+
+def _normalized_text(row: Any) -> str:
+    return " ".join(_row_text(row).lower().split())
+
+
+def _response_text(row: Any) -> str:
+    if not isinstance(row, dict):
+        return ""
+    for column in RESPONSE_COLUMNS:
+        value = row.get(column)
+        if isinstance(value, str):
+            return value.strip()
+    return ""
+
+
+def _chat_has_assistant(row: Any) -> bool:
+    if not isinstance(row, dict):
+        return True
+    messages = row.get("messages") or row.get("conversations")
+    if not isinstance(messages, list):
+        return True
+    for message in messages:
+        if isinstance(message, dict) and str(message.get("role", "")).lower() == "assistant":
+            return True
+    return False
+
+
+def _messages(row: Any) -> list[dict[str, Any]]:
+    if not isinstance(row, dict):
+        return []
+    messages = row.get("messages") or row.get("conversations")
+    if not isinstance(messages, list):
+        return []
+    return [message for message in messages if isinstance(message, dict)]
+
+
+def _assistant_messages(row: Any) -> list[dict[str, Any]]:
+    return [
+        message
+        for message in _messages(row)
+        if str(message.get("role", "")).lower() == "assistant"
+    ]
+
+
+def _has_tool_calls(row: Any) -> bool:
+    return any(message.get("tool_calls") for message in _messages(row))
+
+
+def _has_tool_role(row: Any) -> bool:
+    return any(str(message.get("role", "")).lower() == "tool" for message in _messages(row))
+
+
+def _has_vision_columns(row: Any) -> bool:
+    if not isinstance(row, dict):
+        return False
+    return any(column in row for column in ["image", "images", "image_path", "image_url", "video"])
+
+
+def _labels(row: Any) -> list[Any]:
+    if not isinstance(row, dict):
+        return []
+    labels = row.get("labels")
+    return labels if isinstance(labels, list) else []
+
+
+def _input_ids(row: Any) -> list[Any]:
+    if not isinstance(row, dict):
+        return []
+    input_ids = row.get("input_ids")
+    return input_ids if isinstance(input_ids, list) else []
+
+
+def _token_estimate(text: str) -> int:
+    # A rough tokenizer-free estimate that is good enough for pre-flight warnings.
+    return max(len(text.split()), len(text) // 4)
+
+
+def _contains_bad_text(text: str) -> bool:
+    lowered = text.lower()
+    return "�" in text or "<html" in lowered or "</html" in lowered or "lorem ipsum" in lowered
+
+
+def has_instruction_markers(text: str) -> bool:
+    lowered = text.lower()
+    marker_pairs = [
+        ("### instruction", "### response"),
+        ("instruction:", "response:"),
+        ("user:", "assistant:"),
+        ("human:", "assistant:"),
+        ("<|user|>", "<|assistant|>"),
+    ]
+    return any(left in lowered and right in lowered for left, right in marker_pairs)
+
+
+def has_chat_messages(row: Any) -> bool:
+    if not isinstance(row, dict):
+        return False
+    messages = row.get("messages") or row.get("conversations")
+    if not isinstance(messages, list) or not messages:
+        return False
+    first = messages[0]
+    return isinstance(first, dict) and "role" in first and "content" in first
+
+
+def has_instruction_response_columns(row: Any) -> bool:
+    if not isinstance(row, dict):
+        return False
+    has_instruction = any(column in row for column in INSTRUCTION_COLUMNS)
+    has_response = any(column in row for column in RESPONSE_COLUMNS)
+    return has_instruction and has_response
+
+
+def has_pretokenized_columns(row: Any) -> bool:
+    return isinstance(row, dict) and "input_ids" in row and "labels" in row
+
+
+def check_dataset(
+    report: DiagnosisReport,
+    train_dataset: Any = None,
+    dataset_path: Optional[Union[str, Path]] = None,
+    eval_dataset: Any = None,
+    tokenizer: Any = None,
+    training_args: Any = None,
+    sample_size: int = 50,
+    sequence_length: Optional[int] = None,
+) -> None:
+    dataset = dataset_path or train_dataset
+    if dataset is None:
+        report.add(
+            "dataset.not_provided",
+            "Dataset not provided",
+            "info",
+            "No dataset was provided, so prompt format and empty-row checks were skipped.",
+        )
+        return
+
+    try:
+        rows = sample_dataset(dataset, limit=sample_size)
+    except Exception as exc:
+        report.add(
+            "dataset.read_failed",
+            "Dataset could not be read",
+            "error",
+            f"PEFT Doctor could not read the dataset sample: {exc}",
+            "Check the path and make sure the file is valid JSON, JSONL, CSV, or TXT.",
+        )
+        return
+
+    if not rows:
+        report.add(
+            "dataset.empty",
+            "Dataset sample is empty",
+            "error",
+            "The dataset sample has no rows.",
+            "Check the dataset path, split name, and filtering code before training.",
+        )
+        return
+
+    if len(rows) < 8:
+        report.add(
+            "dataset.too_small",
+            "Dataset sample is very small",
+            "info",
+            "Fewer than 8 rows were available in the sampled dataset.",
+            "Tiny datasets often overfit quickly; use more examples or reduce epochs and LoRA rank.",
+            sampled_rows=len(rows),
+        )
+
+    empty_rows = [
+        index for index, row in enumerate(rows) if not _row_text(row).strip() and not has_chat_messages(row)
+    ]
+    if empty_rows:
+        report.add(
+            "dataset.empty_rows",
+            "Empty rows found",
+            "warning",
+            "Some sampled rows have no usable text fields.",
+            "Remove empty samples and rows with missing instruction or response text.",
+            count=len(empty_rows),
+            first_index=empty_rows[0],
+        )
+
+    normalized = [text for text in (_normalized_text(row) for row in rows) if text]
+    duplicate_count = len(normalized) - len(set(normalized))
+    if duplicate_count:
+        report.add(
+            "dataset.duplicates",
+            "Duplicate samples found",
+            "warning",
+            "Some sampled rows have identical text.",
+            "Remove duplicated samples so the adapter does not memorize repeated examples.",
+            count=duplicate_count,
+        )
+
+    short_responses = [
+        index
+        for index, row in enumerate(rows)
+        if has_instruction_response_columns(row) and len(_response_text(row)) < 2
+    ]
+    if short_responses:
+        report.add(
+            "dataset.short_responses",
+            "Very short responses found",
+            "warning",
+            "Some instruction rows have empty or tiny response text.",
+            "Remove rows with missing answers; they often cause models to learn blank or low-quality replies.",
+            count=len(short_responses),
+            first_index=short_responses[0],
+        )
+
+    bad_text_rows = [
+        index for index, row in enumerate(rows) if _row_text(row).strip() and _contains_bad_text(_row_text(row))
+    ]
+    if bad_text_rows:
+        report.add(
+            "dataset.bad_text_artifacts",
+            "Bad text artifacts found",
+            "warning",
+            "Some sampled rows contain replacement characters, HTML, or placeholder text.",
+            "Clean scraped data before fine-tuning; bad artifacts often show up in model outputs.",
+            count=len(bad_text_rows),
+            first_index=bad_text_rows[0],
+        )
+
+    chat_without_assistant = [
+        index for index, row in enumerate(rows) if has_chat_messages(row) and not _chat_has_assistant(row)
+    ]
+    if chat_without_assistant:
+        report.add(
+            "dataset.chat_missing_assistant",
+            "Chat rows are missing assistant replies",
+            "warning",
+            "Some chat samples do not contain an assistant message.",
+            "Each supervised chat sample should include the assistant answer you want the model to learn.",
+            count=len(chat_without_assistant),
+            first_index=chat_without_assistant[0],
+        )
+
+    empty_assistant = [
+        index
+        for index, row in enumerate(rows)
+        if any(not str(message.get("content", "")).strip() for message in _assistant_messages(row))
+    ]
+    if empty_assistant:
+        report.add(
+            "dataset.empty_assistant_messages",
+            "Assistant messages are empty",
+            "warning",
+            "Some chat rows contain assistant messages with empty content.",
+            "Remove or repair empty assistant replies; they teach the model to answer with blanks.",
+            count=len(empty_assistant),
+            first_index=empty_assistant[0],
+        )
+
+    allowed_roles = {"system", "user", "assistant", "tool"}
+    unknown_role_rows = [
+        index
+        for index, row in enumerate(rows)
+        if any(str(message.get("role", "")).lower() not in allowed_roles for message in _messages(row))
+    ]
+    if unknown_role_rows:
+        report.add(
+            "dataset.unknown_chat_roles",
+            "Unknown chat roles found",
+            "warning",
+            "Some chat messages use roles outside system, user, assistant, or tool.",
+            "Normalize chat roles before applying the tokenizer chat template.",
+            count=len(unknown_role_rows),
+            first_index=unknown_role_rows[0],
+        )
+
+    tool_call_rows = [index for index, row in enumerate(rows) if _has_tool_calls(row) or _has_tool_role(row)]
+    tool_schema_rows = [
+        index
+        for index, row in enumerate(rows)
+        if isinstance(row, dict) and ("tools" in row or "tool_schema" in row)
+    ]
+    if tool_call_rows and not tool_schema_rows:
+        report.add(
+            "dataset.tool_calls_missing_tools",
+            "Tool-call data may be missing tool schemas",
+            "info",
+            "Some rows look like tool-calling conversations, but no tools/tool_schema column was found.",
+            "Keep tool schemas with the sample or pre-render tool calls into plain text before training.",
+            count=len(tool_call_rows),
+            first_index=tool_call_rows[0],
+        )
+
+    vision_rows = [index for index, row in enumerate(rows) if _has_vision_columns(row)]
+    if vision_rows:
+        report.add(
+            "dataset.vision_columns_detected",
+            "Vision columns detected",
+            "info",
+            "Some rows include image or video fields.",
+            "Use a VLM processor/collator and verify image tokens are preserved before PEFT training.",
+            count=len(vision_rows),
+            first_index=vision_rows[0],
+        )
+
+    all_ignored = [
+        index
+        for index, row in enumerate(rows)
+        if _labels(row) and all(label == IGNORE_LABEL_ID for label in _labels(row))
+    ]
+    if all_ignored:
+        report.add(
+            "dataset.labels_all_ignored",
+            "Labels are fully masked",
+            "error",
+            "Some pre-tokenized rows have labels where every token is -100.",
+            "Check your data collator or label masking; fully masked rows teach the model nothing.",
+            count=len(all_ignored),
+            first_index=all_ignored[0],
+        )
+
+    label_mismatch = [
+        index
+        for index, row in enumerate(rows)
+        if _labels(row) and _input_ids(row) and len(_labels(row)) != len(_input_ids(row))
+    ]
+    if label_mismatch:
+        report.add(
+            "dataset.label_length_mismatch",
+            "Label and input lengths differ",
+            "error",
+            "Some pre-tokenized rows have different `input_ids` and `labels` lengths.",
+            "Make sure tokenization, truncation, padding, and label masking happen together.",
+            count=len(label_mismatch),
+            first_index=label_mismatch[0],
+        )
+
+    pad_token_id = get_value(tokenizer, "pad_token_id")
+    if pad_token_id is not None:
+        labels_with_pad = [
+            index for index, row in enumerate(rows) if _labels(row) and pad_token_id in _labels(row)
+        ]
+        if labels_with_pad:
+            report.add(
+                "dataset.pad_token_in_labels",
+                "Pad token appears in labels",
+                "warning",
+                "Some labels contain the tokenizer pad_token_id.",
+                "Mask padding labels to -100 so the model is not trained to predict padding.",
+                count=len(labels_with_pad),
+                first_index=labels_with_pad[0],
+                pad_token_id=pad_token_id,
+            )
+
+    if sequence_length:
+        estimates = [_token_estimate(_row_text(row)) for row in rows if _row_text(row).strip()]
+        long_rows = [
+            index
+            for index, row in enumerate(rows)
+            if _row_text(row).strip() and _token_estimate(_row_text(row)) > sequence_length
+        ]
+        if long_rows:
+            report.add(
+                "dataset.long_rows",
+                "Rows may be truncated",
+                "warning",
+                "Some sampled rows appear longer than the configured sequence length.",
+                "Shorten samples, raise sequence length, or confirm that truncation keeps the answer tokens.",
+                count=len(long_rows),
+                first_index=long_rows[0],
+                sequence_length=sequence_length,
+            )
+        if estimates and min(estimates) > 0 and max(estimates) / min(estimates) >= 8:
+            group_by_length = bool_value(training_args, ["group_by_length"], False)
+            if not group_by_length:
+                report.add(
+                    "dataset.length_variance_high",
+                    "Sample lengths vary widely",
+                    "info",
+                    "The sampled rows have very different estimated lengths.",
+                    "Set group_by_length=True or bucket by length to reduce padding waste.",
+                    shortest_estimated_tokens=min(estimates),
+                    longest_estimated_tokens=max(estimates),
+                )
+
+    response_template = first_value(training_args, ["response_template", "completion_template"], None)
+    if response_template:
+        template_text = str(response_template)
+        rows_with_template = [
+            index for index, row in enumerate(rows) if template_text in _row_text(row)
+        ]
+        if not rows_with_template:
+            report.add(
+                "dataset.response_template_missing",
+                "Response template was not found in samples",
+                "warning",
+                "A response/completion template is configured, but it was not found in sampled text.",
+                "Completion-only masking may hide every label if the template string does not match the data.",
+                response_template=template_text,
+            )
+
+    packing = bool_value(training_args, ["packing"], False)
+    if packing:
+        eos_token = get_value(tokenizer, "eos_token")
+        if eos_token and not any(str(eos_token) in _row_text(row) for row in rows):
+            report.add(
+                "dataset.packing_without_eos",
+                "Packing is enabled but EOS markers were not found",
+                "warning",
+                "Packed examples can bleed into each other when EOS tokens are missing.",
+                "Make sure each formatted training sample ends with tokenizer.eos_token before packing.",
+                eos_token=eos_token,
+            )
+        elif eos_token is None:
+            report.add(
+                "dataset.packing_eos_unknown",
+                "Packing is enabled without a visible EOS token",
+                "warning",
+                "PEFT Doctor could not verify EOS boundaries for packed training.",
+                "Set tokenizer.eos_token and make sure packed examples are separated by EOS.",
+            )
+
+    if eval_dataset is not None:
+        try:
+            eval_rows = sample_dataset(eval_dataset, limit=sample_size)
+        except Exception:
+            eval_rows = []
+        train_texts = set(normalized)
+        eval_texts = {text for text in (_normalized_text(row) for row in eval_rows) if text}
+        overlap = train_texts.intersection(eval_texts)
+        if overlap:
+            report.add(
+                "dataset.train_eval_overlap",
+                "Train and eval samples overlap",
+                "warning",
+                "Some sampled training rows also appear in the eval dataset.",
+                "Deduplicate the split so eval metrics reflect generalization instead of memorization.",
+                count=len(overlap),
+            )
+
+    first = rows[0]
+    if isinstance(first, dict):
+        report.add(
+            "dataset.columns",
+            "Dataset columns detected",
+            "info",
+            "The first sampled row exposes these columns.",
+            columns=", ".join(first.keys()),
+        )
+
+    chat_count = sum(1 for row in rows if has_chat_messages(row))
+    instruction_columns = sum(1 for row in rows if has_instruction_response_columns(row))
+    pretokenized = sum(1 for row in rows if has_pretokenized_columns(row))
+    marker_count = sum(1 for row in rows if has_instruction_markers(_row_text(row)))
+    assistant_only_loss = bool_value(training_args, ["assistant_only_loss"], False)
+    completion_only_loss = bool_value(
+        training_args,
+        ["completion_only_loss", "train_on_responses_only"],
+        False,
+    )
+
+    if chat_count and instruction_columns:
+        report.add(
+            "dataset.mixed_prompt_schemas",
+            "Mixed chat and instruction schemas found",
+            "info",
+            "The sampled data mixes chat messages with instruction/response columns.",
+            "Choose one formatting path before tokenization so label masking is predictable.",
+            chat_rows=chat_count,
+            instruction_rows=instruction_columns,
+        )
+
+    multi_turn_rows = [
+        index for index, row in enumerate(rows) if len(_assistant_messages(row)) > 1
+    ]
+    if multi_turn_rows and not assistant_only_loss:
+        report.add(
+            "dataset.multi_turn_without_assistant_loss",
+            "Multi-turn chat may train on non-assistant tokens",
+            "info",
+            "Some rows contain multiple assistant turns, but assistant_only_loss is not enabled.",
+            "For chat SFT, mask loss to assistant spans when your chat template supports it.",
+            count=len(multi_turn_rows),
+            first_index=multi_turn_rows[0],
+        )
+
+    if assistant_only_loss and not chat_count:
+        report.add(
+            "dataset.assistant_loss_without_chat",
+            "assistant_only_loss is enabled without chat rows",
+            "warning",
+            "assistant_only_loss expects chat messages rendered by a compatible chat template.",
+            "Use chat `messages` rows, or switch to completion_only_loss with a response template.",
+        )
+
+    if completion_only_loss and not (instruction_columns or marker_count or response_template):
+        report.add(
+            "dataset.completion_loss_without_template",
+            "Completion-only loss cannot find prompt/completion structure",
+            "warning",
+            "completion_only_loss is enabled, but the sampled rows do not expose a clear response boundary.",
+            "Use prompt/completion columns or pass the exact response_template used in formatted text.",
+        )
+
+    if chat_count:
+        chat_template = get_value(tokenizer, "chat_template")
+        apply_chat_template = getattr(tokenizer, "apply_chat_template", None)
+        if tokenizer is not None and not chat_template and not callable(apply_chat_template):
+            report.add(
+                "dataset.chat_template_missing",
+                "Chat dataset without tokenizer chat template",
+                "warning",
+                "The dataset uses chat-style messages, but the tokenizer does not expose a chat template.",
+                "Set tokenizer.chat_template or format messages into text before tokenization.",
+                chat_rows=chat_count,
+            )
+        else:
+            report.add(
+                "dataset.chat_format",
+                "Chat message format detected",
+                "ok",
+                "Sampled rows use a `messages` style chat format.",
+                chat_rows=chat_count,
+            )
+    elif instruction_columns:
+        report.add(
+            "dataset.instruction_columns",
+            "Instruction and response columns detected",
+            "ok",
+            "The sampled rows look like instruction-tuning data.",
+            matching_rows=instruction_columns,
+        )
+    elif pretokenized:
+        report.add(
+            "dataset.pretokenized",
+            "Pretokenized dataset detected",
+            "ok",
+            "The sampled rows include `input_ids` and `labels`.",
+            matching_rows=pretokenized,
+        )
+    elif marker_count:
+        report.add(
+            "dataset.prompt_markers",
+            "Prompt markers detected",
+            "ok",
+            "Text rows include instruction/response style markers.",
+            matching_rows=marker_count,
+        )
+    else:
+        report.add(
+            "dataset.prompt_format_unclear",
+            "Prompt format is unclear",
+            "warning",
+            "The sampled rows do not look like chat messages, instruction/response columns, or marked text.",
+            "Use a clear prompt template such as `### Instruction:` and `### Response:` or apply the tokenizer chat template.",
+        )
+
+
+def check_tokenizer(
+    report: DiagnosisReport,
+    tokenizer: Any = None,
+    training_args: Any = None,
+    model_name: Optional[str] = None,
+) -> None:
+    if tokenizer is None:
+        report.add(
+            "tokenizer.not_provided",
+            "Tokenizer not provided",
+            "info",
+            "Tokenizer checks were skipped.",
+        )
+        return
+
+    pad_token = get_value(tokenizer, "pad_token")
+    eos_token = get_value(tokenizer, "eos_token")
+    padding_side = get_value(tokenizer, "padding_side")
+    chat_template = get_value(tokenizer, "chat_template")
+    assistant_only_loss = bool_value(training_args, ["assistant_only_loss"], False)
+    completion_only_loss = bool_value(
+        training_args,
+        ["completion_only_loss", "train_on_responses_only"],
+        False,
+    )
+    packing = bool_value(training_args, ["packing"], False)
+    if pad_token is None:
+        report.add(
+            "tokenizer.pad_token_missing",
+            "Tokenizer has no pad token",
+            "warning",
+            "Batch collation may fail because the tokenizer has no pad token.",
+            "For causal LM fine-tuning, a common fix is `tokenizer.pad_token = tokenizer.eos_token`.",
+            eos_token=eos_token,
+        )
+    else:
+        report.add(
+            "tokenizer.pad_token_ok",
+            "Tokenizer pad token is set",
+            "ok",
+            "The tokenizer exposes a pad token.",
+        )
+
+    if eos_token is None:
+        report.add(
+            "tokenizer.eos_token_missing",
+            "Tokenizer has no EOS token",
+            "warning",
+            "The tokenizer does not expose an EOS token.",
+            "Set or verify `tokenizer.eos_token`; missing EOS tokens can cause runaway generation.",
+        )
+
+    if pad_token is not None and eos_token is not None and pad_token == eos_token and (
+        completion_only_loss or assistant_only_loss
+    ):
+        report.add(
+            "tokenizer.pad_equals_eos_loss_masking",
+            "pad_token equals eos_token while response loss masking is used",
+            "warning",
+            "Some collators mask labels by pad_token_id; if pad and EOS share an id, EOS labels can be masked too.",
+            "Verify your collator masks only padding positions, or use a dedicated pad token when needed.",
+        )
+
+    if assistant_only_loss and chat_template and "{% generation" not in str(chat_template):
+        report.add(
+            "tokenizer.chat_template_no_generation_block",
+            "Chat template may not support assistant-only loss",
+            "warning",
+            "assistant_only_loss usually needs a chat template with generation blocks.",
+            "Use a chat template that marks assistant spans, or choose completion_only_loss with a response template.",
+        )
+
+    if padding_side == "left":
+        report.add(
+            "tokenizer.left_padding_training",
+            "Tokenizer uses left padding",
+            "info",
+            "Left padding is common for generation, but right padding is usually simpler for causal LM training.",
+            "For SFT training, consider `tokenizer.padding_side = 'right'` unless your collator requires left padding.",
+        )
+
+    if padding_side == "left" and packing:
+        report.add(
+            "tokenizer.left_padding_with_packing",
+            "Left padding is awkward with packed training",
+            "info",
+            "Packing works best with right-padded or unpadded formatted text.",
+            "Use right padding during SFT packing unless your collator specifically supports left padding.",
+        )
+
+    if model_name and "qwen" in model_name.lower() and "instruct" in model_name.lower():
+        if eos_token is not None and eos_token != "<|im_end|>":
+            report.add(
+                "tokenizer.qwen_eos_review",
+                "Qwen instruct EOS token may need review",
+                "info",
+                "Qwen instruct SFT recipes often use <|im_end|> as the EOS token.",
+                "If generation does not stop cleanly, set eos_token='<|im_end|>' in the tokenizer/trainer setup.",
+                eos_token=eos_token,
+            )
+
+    model_max_length = get_value(tokenizer, "model_max_length")
+    if isinstance(model_max_length, int) and model_max_length > 1_000_000:
+        report.add(
+            "tokenizer.model_max_length_placeholder",
+            "Tokenizer max length looks like a placeholder",
+            "info",
+            "The tokenizer reports a very large model_max_length value.",
+            "Pass an explicit max sequence length in your data collator or training script.",
+            model_max_length=model_max_length,
+        )

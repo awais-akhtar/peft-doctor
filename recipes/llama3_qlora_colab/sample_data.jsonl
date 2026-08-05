@@ -1,0 +1,3 @@
+{"messages": [{"role": "user", "content": "Explain LoRA simply."}, {"role": "assistant", "content": "LoRA trains small adapter weights while leaving the base model frozen."}]}
+{"messages": [{"role": "user", "content": "Why use QLoRA?"}, {"role": "assistant", "content": "QLoRA lowers memory by loading the base model in 4-bit while training adapters."}]}
+

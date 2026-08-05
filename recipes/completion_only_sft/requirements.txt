@@ -1,0 +1,9 @@
+peft-doctor[ml]>=0.9
+torch
+transformers
+peft
+trl
+datasets
+accelerate
+safetensors
+sentencepiece

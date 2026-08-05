@@ -1,0 +1,2 @@
+{"prompt": "Explain LoRA in one sentence.", "completion": "LoRA trains small adapter matrices while keeping the base model mostly frozen."}
+{"prompt": "Give one QLoRA memory tip.", "completion": "Use 4-bit NF4 loading, batch size 1, and gradient checkpointing first."}

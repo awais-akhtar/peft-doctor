@@ -1,0 +1,3 @@
+{"messages": [{"role": "user", "content": "Give one QLoRA safety tip."}, {"role": "assistant", "content": "Start with batch size 1, gradient checkpointing, and a short max sequence length."}]}
+{"messages": [{"role": "user", "content": "Why check EOS tokens?"}, {"role": "assistant", "content": "A wrong EOS token can make generation continue past the intended answer."}]}
+
