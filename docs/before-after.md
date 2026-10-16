@@ -21,11 +21,11 @@ training_args = TrainingArguments(
 Command:
 
 ```bash
-peft-doctor fix --dry-run train.py --family llama
+peft-doctor fix --input train.py --dry-run --family llama
 peft-doctor fix --input train.py --output train.fixed.py --family llama
 ```
 
-After:
+Illustrative target state, not captured command output. The fixer only changes patterns it can identify safely; inspect its report and resulting file for the specific input:
 
 ```python
 tokenizer = AutoTokenizer.from_pretrained(model_name)

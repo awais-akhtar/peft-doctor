@@ -101,7 +101,7 @@ The adapter directory should contain adapter_config.json and adapter_model.safet
 Quantized merge:
 
 ```text
-4-bit and 8-bit loading are excellent for training/inference memory, but final merge exports are safest from fp16, bf16, or fp32.
+4-bit and 8-bit loading can reduce memory use during model loading. A merged export commonly uses fp16, bf16, or fp32, depending on model support and deployment requirements; verify the chosen dtype and library versions before merging.
 ```
 
 Hard-coded tokens:

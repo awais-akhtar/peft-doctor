@@ -442,7 +442,7 @@ Fix: start with peft-doctor recipe --kind qlora-sft, low-vram-colab, completion-
 Start with a dry run:
 
 ```bash
-peft-doctor fix --dry-run train.py
+peft-doctor fix --input train.py --dry-run
 ```
 
 Write a patched copy:

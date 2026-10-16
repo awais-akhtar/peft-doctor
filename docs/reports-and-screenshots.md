@@ -9,7 +9,7 @@ Use the installed version to capture output for an issue or pull request:
 ```bash
 peft-doctor version
 peft-doctor check train.py --dataset data.jsonl --output markdown
-peft-doctor fix --dry-run train.py
+peft-doctor fix --input train.py --dry-run
 ```
 
 Do not rely on an old screenshot when exact wording or issue codes matter. CLI output can change as checks are corrected.

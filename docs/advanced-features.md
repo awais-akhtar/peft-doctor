@@ -1,6 +1,6 @@
-# Advanced PEFT Doctor Features
+# PEFT Doctor Feature Reference
 
-These checks run locally. They do not upload scripts, datasets, adapters, logs, or tokens.
+File-based checks process the supplied local files. Model or tokenizer lookup by remote identifier can contact the configured model host. No hosted PEFT Doctor analysis service is used.
 
 ## 1. Prioritized Diagnosis
 
@@ -173,7 +173,7 @@ Use this in CI to enforce fine-tuning standards.
 peft-doctor cloud
 ```
 
-Documents the long-term hosted-reporting idea. The local command does not upload anything.
+Prints the long-term hosted-reporting roadmap. This command does not transmit files or contact a hosted service.
 
 ## 21. Training Plan Calculator
 

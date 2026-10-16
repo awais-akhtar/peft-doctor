@@ -3,7 +3,7 @@
 This fixture uses a causal-LM LoRA config that targets `lm_head` instead of the model-family projection layers.
 
 ```bash
-peft-doctor fix --dry-run train.py --family llama
+peft-doctor fix --input train.py --dry-run --family llama
 peft-doctor targets --family llama
 ```
 

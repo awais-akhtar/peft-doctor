@@ -2,7 +2,7 @@
 
 These commands cover the part of fine-tuning that is easy to overlook: whether a run plan is internally consistent, a checkpoint can really resume, an adapter survived copying, and a result can be reproduced later.
 
-All checks run locally. They do not upload model files, datasets, configs, logs, hashes, or manifests.
+File and configuration checks operate on local paths. Commands that resolve remote model identifiers or explicitly upload merged artifacts may use network access. No hosted PEFT Doctor analysis service is used.
 
 ## Recommended Workflow
 

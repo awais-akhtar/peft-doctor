@@ -1,6 +1,6 @@
 # Google Colab
 
-Most LoRA and QLoRA experiments start in Colab, so PEFT Doctor keeps the notebook path simple.
+This guide shows how to install PEFT Doctor and run pre-flight checks in a Colab notebook.
 
 ## Setup Cell
 

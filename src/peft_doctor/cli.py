@@ -42,6 +42,22 @@ from .environment import diagnose_environment
 from .estimator import estimate_vram_gb
 from .explain import explanation_text, write_html_report, write_pdf_report
 from .fixer import repair_config_file, repair_dataset_file, repair_python_file
+from .intelligence import (
+    advise_strategy,
+    answer_with_evidence,
+    find_dataset_conflicts,
+    inspect_gradient_snapshot,
+    inspect_objective,
+    inspect_privacy,
+    inspect_serving,
+    investigate_distributed_logs,
+    investigate_project,
+    minimize_failure,
+    plan_adapter_composition,
+    plan_hardware,
+    plan_training_coverage,
+    recommend_next_experiment,
+)
 from .logs import scan_training_log
 from .notebooks import scan_notebook
 from .modern import (
@@ -1532,6 +1548,189 @@ def quantization_check_command(
     """Check bitsandbytes mode, NF4, compute dtype, and FSDP storage dtype."""
 
     _print_report(check_quantization_config(config, gpu=gpu, training=training), output)
+
+
+@app.command("investigate")
+def investigate_command(
+    project: Path = typer.Argument(Path("."), help="Project directory containing train.py, data, and logs."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Connect dataset, training-script, and log symptoms into evidence-backed causes."""
+
+    _print_report(investigate_project(project), output)
+
+
+@app.command("inspect-objective")
+def inspect_objective_command(
+    project: Path = typer.Argument(..., help="Dataset file or project directory containing a JSON/JSONL dataset."),
+    row: int = typer.Option(1, "--row", help="One-based row number to inspect."),
+    tokenizer: Optional[str] = typer.Option(None, "--tokenizer", help="Local tokenizer directory. This command never downloads a tokenizer."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Inspect stored text, chat turns, and labels for one training example."""
+
+    dataset = project if project.is_file() else _dataset_for_cli(project)
+    if dataset is None:
+        missing = DiagnosisReport()
+        missing.add("objective.dataset_missing", "Dataset file not found", "error", f"No JSON, JSONL, or CSV dataset found in {project}.")
+        _print_report(missing, output)
+        raise typer.Exit(2)
+    _print_report(inspect_objective(dataset, row, tokenizer_path=tokenizer), output)
+
+
+@app.command("gradients")
+def gradients_command(
+    snapshot: Path = typer.Argument(..., help="JSON gradient summary; pickle-based checkpoints are not loaded."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Find zero, nonfinite, or optimizer-excluded parameters in a JSON snapshot."""
+
+    _print_report(inspect_gradient_snapshot(snapshot), output)
+
+
+@app.command("minimize")
+def minimize_command(
+    spec: Path = typer.Argument(..., help="JSON spec with dataset and argv including a {dataset} placeholder."),
+    budget_runs: int = typer.Option(10, "--budget-runs", min=1, max=100, help="Maximum number of subprocess runs, capped at 100."),
+    allow_execution: bool = typer.Option(False, "--allow-execution", help="Run the reviewed argv command against temporary data subsets."),
+    timeout_seconds: int = typer.Option(60, "--timeout-seconds", min=1, max=600, help="Per-run timeout."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Minimize a reproducible JSONL failure after explicit execution approval."""
+
+    _print_report(minimize_failure(spec, allow_execution=allow_execution, budget_runs=budget_runs, timeout_seconds=timeout_seconds), output)
+
+
+@app.command("conflicts")
+def conflicts_command(
+    dataset: Path = typer.Argument(..., help="JSON, JSONL, CSV, or TXT training dataset."),
+    threshold: float = typer.Option(0.82, "--threshold", min=0.0, max=1.0, help="Prompt similarity threshold."),
+    limit: int = typer.Option(5000, "--limit", min=1, max=50000, help="Maximum rows to compare."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Find similar prompts with different answers for human review."""
+
+    _print_report(find_dataset_conflicts(dataset, threshold=threshold, limit=limit), output)
+
+
+@app.command("coverage")
+def coverage_command(
+    dataset: Path = typer.Argument(..., help="Training dataset to inspect."),
+    tasks: Path = typer.Option(..., "--tasks", help="YAML/JSON mapping with a tasks list and keywords."),
+    limit: int = typer.Option(10000, "--limit", min=1, max=100000, help="Maximum rows to inspect."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Compare dataset text with task keywords supplied in a task plan."""
+
+    _print_report(plan_training_coverage(dataset, tasks, limit=limit), output)
+
+
+@app.command("privacy")
+def privacy_command(
+    dataset: Path = typer.Argument(..., help="Local JSON, JSONL, CSV, or TXT dataset."),
+    redacted_output: Optional[Path] = typer.Option(None, "--redacted-output", help="Write a redacted JSON/JSONL copy."),
+    limit: int = typer.Option(100000, "--limit", min=1, max=500000, help="Maximum rows to inspect."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Find common sensitive-data patterns and optionally write a redacted copy."""
+
+    _print_report(inspect_privacy(dataset, redacted_output=redacted_output, limit=limit), output)
+
+
+@app.command("strategy")
+def strategy_command(
+    requirements: Path = typer.Argument(..., help="YAML/JSON task requirements."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Compare prompt, retrieval, and fine-tuning approaches using explicit requirements."""
+
+    _print_report(advise_strategy(requirements), output)
+
+
+@app.command("plan")
+def hardware_plan_command(
+    model: str = typer.Option(..., "--model", help="Model name or architecture profile."),
+    vram: float = typer.Option(..., "--vram", min=1, help="Available GPU VRAM in GB."),
+    hours: float = typer.Option(..., "--hours", min=0.01, help="Time budget in hours."),
+    seq_len: int = typer.Option(2048, "--seq-len", min=1, help="Planned sequence length."),
+    batch_size: int = typer.Option(1, "--batch-size", min=1, help="Per-device batch size."),
+    dataset_tokens: Optional[int] = typer.Option(None, "--dataset-tokens", min=1, help="Total training tokens for throughput planning."),
+    params_billion: Optional[float] = typer.Option(None, "--params-billion", min=0.01, help="Model parameter count in billions."),
+    gpu_count: int = typer.Option(1, "--gpu-count", min=1, help="Number of GPUs in the planned run."),
+    disk_gb: Optional[float] = typer.Option(None, "--disk-gb", min=0, help="Free disk space in GB."),
+    required_disk_gb: Optional[float] = typer.Option(None, "--required-disk-gb", min=0, help="Estimated disk requirement in GB."),
+    measured_tokens_per_second: Optional[float] = typer.Option(None, "--measured-tokens-per-second", min=0.01, help="Measured aggregate throughput for a comparable run."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Plan a QLoRA starting point against supplied VRAM and time limits."""
+
+    _print_report(plan_hardware(model, vram, hours, seq_len=seq_len, batch_size=batch_size, dataset_tokens=dataset_tokens, params_billion=params_billion, gpu_count=gpu_count, disk_gb=disk_gb, required_disk_gb=required_disk_gb, measured_tokens_per_second=measured_tokens_per_second), output)
+
+
+@app.command("compose-plan")
+def compose_plan_command(
+    adapters: list[Path] = typer.Argument(..., help="Two or more local adapter directories."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Compare adapter metadata before choosing and evaluating a composition method."""
+
+    if len(adapters) < 2:
+        report = DiagnosisReport()
+        report.add("compose.too_few_adapters", "At least two adapters are required", "error", "Pass two or more adapter directories.")
+        _print_report(report, output)
+        raise typer.Exit(2)
+    _print_report(plan_adapter_composition(adapters), output)
+
+
+@app.command("serving-check")
+def serving_check_command(
+    adapter: Path = typer.Argument(..., help="Local adapter directory."),
+    engine: str = typer.Option(..., "--engine", help="Serving engine, for example vllm, transformers, or TGI."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Check adapter metadata that can affect loading in a serving engine."""
+
+    _print_report(inspect_serving(adapter, engine), output)
+
+
+@app.command("next-experiment")
+def next_experiment_command(
+    experiments: Path = typer.Argument(Path("."), help="Project root containing .peft-doctor/history.jsonl written by `history`."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Review recorded runs and identify what evidence is needed for the next comparison."""
+
+    _print_report(recommend_next_experiment(experiments), output)
+
+
+@app.command("investigate-distributed")
+def investigate_distributed_command(
+    logs: Path = typer.Argument(..., help="Directory containing per-rank log files."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Correlate common OOM, NCCL, timeout, device, and uneven-input log symptoms."""
+
+    _print_report(investigate_distributed_logs(logs), output)
+
+
+@app.command("assistant")
+def assistant_command(
+    project: Path = typer.Argument(Path("."), help="Project directory whose local files can provide evidence."),
+    question: Optional[str] = typer.Option(None, "--question", "-q", help="Question about the local run."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or markdown."),
+) -> None:
+    """Find local file lines relevant to a question without sending data anywhere."""
+
+    prompt = question or typer.prompt("What would you like to know about this run?")
+    _print_report(answer_with_evidence(project, prompt), output)
+
+
+def _dataset_for_cli(project: Path) -> Optional[Path]:
+    for pattern in ("*.jsonl", "*.json", "*.csv"):
+        match = next(iter(sorted(project.glob(pattern))), None)
+        if match:
+            return match
+    return None
 
 
 @app.command("env")

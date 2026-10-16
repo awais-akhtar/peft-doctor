@@ -1,6 +1,6 @@
 # Privacy And Security
 
-PEFT Doctor is local-first.
+PEFT Doctor processes file-based checks locally and has no hosted analysis service. Commands that resolve model or tokenizer identifiers may contact the configured model host. Merge and Hub-upload operations can transfer model artifacts when explicitly configured.
 
 ## What Stays Local
 
@@ -14,7 +14,7 @@ peft-doctor dataset-report data.jsonl
 peft-doctor audit . --policy peft-policy.yml
 ```
 
-They do not upload scripts, datasets, logs, adapters, configs, or tokens.
+The commands above do not send files to a PEFT Doctor service. If a command is given a remote model identifier, the relevant upstream library may contact the model host. Hub upload occurs only through an explicitly configured upload operation.
 
 ## Tokens
 
@@ -40,4 +40,4 @@ HTML, PDF, markdown, and JSON reports are written only to the path you choose. D
 
 ## Cloud Roadmap
 
-`peft-doctor cloud` is a roadmap command. It does not send data to a hosted PEFT Doctor service.
+`peft-doctor cloud` only prints roadmap information and does not send data to a hosted PEFT Doctor service.

@@ -1,6 +1,6 @@
 # Checks
 
-PEFT Doctor is built around practical checks that match the way LoRA and QLoRA runs usually fail.
+PEFT Doctor checks common configuration, dataset, hardware-estimation, and artifact conditions that can affect LoRA and QLoRA runs. Results depend on the supplied files and metadata; they are not a substitute for a training smoke test.
 
 ## Memory
 
@@ -191,5 +191,5 @@ PEFT Doctor now also warns about:
 Always run dry-run first:
 
 ```bash
-peft-doctor fix --dry-run train.py
+peft-doctor fix --input train.py --dry-run
 ```

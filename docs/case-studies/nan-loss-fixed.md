@@ -10,7 +10,7 @@ Fixture inputs:
 
 ```bash
 peft-doctor analyze-log run.log
-peft-doctor fix --dry-run train.py
+peft-doctor fix --input train.py --dry-run
 peft-doctor fix --input train.py --output train.fixed.py
 ```
 

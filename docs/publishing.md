@@ -1,6 +1,6 @@
 # Publishing
 
-This repository is ready for GitHub Actions CI and PyPI publishing.
+This page describes the repository's GitHub Actions checks and package publishing workflow.
 
 ## CI
 

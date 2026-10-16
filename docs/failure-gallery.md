@@ -1,17 +1,17 @@
 # Failure Gallery
 
-Ten common PEFT failures and how PEFT Doctor fixes or explains them.
+Examples of common PEFT failure symptoms, the command that can help investigate them, and a typical follow-up. Most recommendations are diagnostic; review changes before applying them.
 
-| Failure | Command | Fix |
+| Failure | Command | Typical follow-up |
 | --- | --- | --- |
-| CUDA out of memory | `peft-doctor estimate --model llama-3-8b --qlora --target-vram 16` | lower batch/sequence length, use QLoRA |
-| `loss=nan` | `peft-doctor analyze-log trainer.log` | lower LR, prefer bf16, add gradient clipping |
-| tokenizer has no pad token | `peft-doctor fix --dry-run train.py` | add `tokenizer.pad_token = tokenizer.eos_token` |
-| `use_cache=True` with checkpointing | `peft-doctor fix --input train.py --output train.fixed.py` | set `model.config.use_cache = False` |
-| fp16 and bf16 both enabled | `peft-doctor fix --config config.json --dry-run` | keep one precision mode |
-| wrong target modules | `peft-doctor targets --family llama` | use attention/MLP projections |
-| packed examples without EOS | `peft-doctor dataset-doctor data.jsonl --packing` | append EOS between examples |
-| completion template mismatch | `peft-doctor dataset-doctor data.jsonl --response-template "### Response:"` | match formatted samples exactly |
-| adapter missing config | `peft-doctor inspect-adapter ./adapter` | save with `model.save_pretrained()` |
-| hard-coded notebook token | `peft-doctor notebook-check notebook.ipynb` | remove/revoke token and use `HF_TOKEN` |
+| CUDA out of memory | `peft-doctor estimate --model llama-3-8b --qlora --target-vram 16` | Review the estimate; reduce per-device batch size or sequence length and consider quantization. |
+| `loss=nan` | `peft-doctor analyze-log trainer.log` | Review reported log patterns, then check precision, learning rate, and data. |
+| tokenizer has no pad token | `peft-doctor fix --input train.py --dry-run` | Review the proposed `tokenizer.pad_token = tokenizer.eos_token` patch. |
+| `use_cache=True` with checkpointing | `peft-doctor fix --input train.py --output train.fixed.py` | Review the generated patch and confirm it matches the model-loading code. |
+| fp16 and bf16 both enabled | `peft-doctor fix --config config.json --dry-run` | Review the patch and select a precision supported by the hardware and model. |
+| wrong target modules | `peft-doctor targets --family llama` | Compare the suggested names with modules exposed by the selected model. |
+| packed examples without EOS | `peft-doctor dataset-doctor data.jsonl --packing` | Check the report and confirm that the dataset packing format separates examples as intended. |
+| completion template mismatch | `peft-doctor dataset-doctor data.jsonl --response-template "### Response:"` | Confirm the response marker matches the formatting in the training examples. |
+| adapter missing config | `peft-doctor inspect-adapter ./adapter` | Check the report; adapters are normally saved with the PEFT model's `save_pretrained()` method. |
+| hard-coded notebook token | `peft-doctor notebook-check notebook.ipynb` | Remove the credential from the notebook and revoke it if it was exposed; use an environment secret instead. |
 

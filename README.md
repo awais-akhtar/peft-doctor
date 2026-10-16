@@ -1,16 +1,16 @@
 # PEFT Doctor
 
-PEFT Doctor is a local pre-flight checker and repair tool for LoRA, QLoRA, PEFT, TRL, Transformers, bitsandbytes, and Accelerate training projects.
+PEFT Doctor provides pre-flight checks and repair tools for LoRA and QLoRA fine-tuning projects using PEFT, Transformers, TRL, bitsandbytes, and Accelerate. It reviews training settings, datasets, memory estimates, adapters, checkpoints, generation configuration, and distributed setup before or after a run.
 
-It catches common failures before a GPU job starts: CUDA out of memory risk, NaN loss settings, wrong LoRA target modules, missing tokenizer padding, bad chat templates, empty assistant answers, broken label masks, incomplete checkpoints, unsafe adapter merges, and distributed configuration conflicts.
+Checks report the rules that matched and suggested follow-up actions. They help identify common configuration and data problems; they do not predict model quality or guarantee a successful training run.
 
 ```bash
 python -m pip install -U peft-doctor
 peft-doctor check train.py --dataset data.jsonl --model llama-3-8b --explain
-peft-doctor fix --dry-run train.py
+peft-doctor fix --input train.py --dry-run
 ```
 
-The core package is lightweight and works without downloading a model. Install the optional training stack only when a command needs Transformers, PEFT, Torch, or a tokenizer:
+The base install provides the CLI and file-based checks. Install the optional training stack for commands that load model or tokenizer metadata or inspect a live model:
 
 ```bash
 python -m pip install -U "peft-doctor[ml]"
@@ -26,7 +26,7 @@ peft-doctor env
 peft-doctor check train.py --dataset data.jsonl --model llama-3-8b --explain
 
 # 2. Preview supported edits. This does not change the file.
-peft-doctor fix --dry-run train.py
+peft-doctor fix --input train.py --dry-run
 
 # 3. Write a separate patched script after reviewing the preview.
 peft-doctor fix --input train.py --output train.fixed.py
@@ -50,9 +50,9 @@ Every check returns one of four severities:
 
 | Severity | Meaning |
 | --- | --- |
-| `ERROR` | A checked contradiction or broken artifact was found. Fix it before relying on the run. |
-| `WARNING` | A risky or unverifiable setting needs review. |
-| `OK` | The named rule passed. It is not a guarantee that training will succeed. |
+| `ERROR` | A checked contradiction or invalid artifact was found. |
+| `WARNING` | A setting or artifact needs review. |
+| `OK` | The named check passed for the inputs examined. |
 | `INFO` | Context, a limitation, or a manual follow-up. |
 
 Reports can be printed as a table, JSON, or Markdown. The main `check` command can also write HTML and PDF:
@@ -68,7 +68,7 @@ peft-doctor check train.py --dataset data.jsonl --html-report report.html --pdf-
 
 ```bash
 # Preview a training-script patch.
-peft-doctor fix --dry-run train.py
+peft-doctor fix --input train.py --dry-run
 
 # Write to a new path.
 peft-doctor fix --input train.py --output train.fixed.py --family llama
@@ -355,9 +355,51 @@ python train.py --revision MODEL_COMMIT_SHA --max-steps 10
 
 Each project contains `README.md`, `train.py`, `requirements.txt`, `sample_data.jsonl`, `expected_output.md`, and `tested_environment.md`.
 
+## Investigation And Planning Commands
+
+These commands add local evidence review for causes that are hard to spot from a single config warning:
+
+```bash
+peft-doctor investigate ./run
+peft-doctor inspect-objective data.jsonl --row 42
+peft-doctor gradients gradient-summary.json
+peft-doctor minimize failure.json --allow-execution --budget-runs 10
+peft-doctor conflicts data.jsonl
+peft-doctor coverage data.jsonl --tasks tasks.yaml
+peft-doctor privacy data.jsonl --redacted-output data.redacted.jsonl
+peft-doctor strategy requirements.yaml
+peft-doctor plan --model llama-3-8b --vram 16 --hours 4
+peft-doctor compose-plan ./adapter-a ./adapter-b
+peft-doctor serving-check ./adapter --engine vllm
+peft-doctor next-experiment ./my-run
+peft-doctor investigate-distributed ./rank-logs
+peft-doctor assistant ./my-run --question "Why did training stop?"
+```
+
+The [investigation guide](https://github.com/awais-akhtar/peft-doctor/blob/main/docs/intelligent-investigations.md) describes each command's inputs, examples, and limits. The failure minimizer runs a user-supplied process only when `--allow-execution` is set; it uses an argument array and enforces a run budget. The evidence assistant searches local files without calling a remote model.
+
+| Command | Purpose | Example |
+| --- | --- | --- |
+| `investigate` | Correlate dataset, script, and log findings | `peft-doctor investigate ./run --output markdown` |
+| `inspect-objective` | Review a row's saved text, chat turns, IDs, and labels | `peft-doctor inspect-objective data.jsonl --row 42` |
+| `gradients` | Inspect a JSON summary of trainable gradients and updates | `peft-doctor gradients gradient-summary.json` |
+| `minimize` | Reduce a reproducible JSONL failure under a run budget | `peft-doctor minimize failure.json --allow-execution --budget-runs 10` |
+| `conflicts` | Find similar questions with differing answers for review | `peft-doctor conflicts data.jsonl --threshold 0.82` |
+| `coverage` | Compare data against task markers supplied in YAML/JSON | `peft-doctor coverage data.jsonl --tasks tasks.yaml` |
+| `privacy` | Scan common sensitive patterns and optionally redact a copy | `peft-doctor privacy data.jsonl --redacted-output clean.jsonl` |
+| `strategy` | Compare prompt, retrieval, and fine-tuning considerations | `peft-doctor strategy requirements.yaml` |
+| `plan` | Compare a formula-based memory estimate with supplied budgets | `peft-doctor plan --model llama-3-8b --vram 16 --hours 4` |
+| `compose-plan` | Compare local adapter metadata before evaluation | `peft-doctor compose-plan ./adapter-a ./adapter-b` |
+| `serving-check` | Review adapter metadata relevant to serving | `peft-doctor serving-check ./adapter --engine vllm` |
+| `next-experiment` | Suggest a comparison from notes saved by `history` | `peft-doctor history ./my-run --add-status oom --note "Reduced sequence length"` then `peft-doctor next-experiment ./my-run` |
+| `investigate-distributed` | Find common error signatures in per-rank logs | `peft-doctor investigate-distributed ./rank-logs` |
+| `assistant` | Retrieve matching lines from local run files for a question | `peft-doctor assistant ./run --question "Why did training stop?"` |
+
+These commands inspect local inputs and provide planning guidance. They do not evaluate model quality. `inspect-objective` does not reproduce a trainer's full collator and packing path; `coverage` checks user-supplied markers; and `privacy` uses pattern matching that may miss sensitive values. See the detailed guide for input formats and limitations.
+
 ## All Commands
 
-Each example is safe to run locally unless it explicitly performs a merge or writes a file.
+Examples operate on the named inputs. Some commands write reports or repaired copies; merge and Hub operations can download or upload model artifacts when configured.
 
 | Command | What to use it for | Example |
 | --- | --- | --- |
@@ -383,6 +425,20 @@ Each example is safe to run locally unless it explicitly performs a merge or wri
 | `chat-template-check` | Check template variables, roles, and generation markers | `peft-doctor chat-template-check tokenizer_config.json --dataset chat.jsonl --assistant-only-loss` |
 | `lora-config-check` | Check current PEFT LoRA fields and variant combinations | `peft-doctor lora-config-check adapter_config.json` |
 | `quantization-check` | Check bitsandbytes 4/8-bit, NF4, dtype, and FSDP settings | `peft-doctor quantization-check bnb.json --gpu T4` |
+| `investigate` | Join project, data, and log findings into possible causal chains | `peft-doctor investigate ./run --output markdown` |
+| `inspect-objective` | Inspect stored text, conversation turns, and label masks for one row | `peft-doctor inspect-objective data.jsonl --row 42` |
+| `gradients` | Find zero/nonfinite gradients, zero updates, and optimizer omissions from a JSON snapshot | `peft-doctor gradients gradient-summary.json` |
+| `minimize` | Reduce a reproducible dataset failure with explicit permission and a run budget | `peft-doctor minimize failure.json --allow-execution --budget-runs 10` |
+| `conflicts` | Find similar prompts with different answers for human review | `peft-doctor conflicts data.jsonl --threshold 0.82` |
+| `coverage` | Compare user-supplied task/language markers and conversation patterns with the dataset | `peft-doctor coverage data.jsonl --tasks tasks.yaml` |
+| `privacy` | Flag common sensitive-data patterns and optionally write a redacted copy | `peft-doctor privacy data.jsonl --redacted-output clean.jsonl` |
+| `strategy` | Give rule-based prompting, retrieval, or fine-tuning guidance from requirements | `peft-doctor strategy requirements.yaml` |
+| `plan` | Compare supplied VRAM, disk, GPU count, time, and measured throughput inputs | `peft-doctor plan --model llama-3-8b --vram 16 --hours 4 --gpu-count 2` |
+| `compose-plan` | Compare local adapter metadata before a separately evaluated composition | `peft-doctor compose-plan ./adapter-a ./adapter-b` |
+| `serving-check` | Review adapter metadata that can affect a named serving engine | `peft-doctor serving-check ./adapter --engine vllm` |
+| `next-experiment` | Review local run history and identify missing comparison evidence | `peft-doctor history ./my-run --add-status oom --note "Reduced sequence length"` then `peft-doctor next-experiment ./my-run` |
+| `investigate-distributed` | Scan per-rank log files for common distributed failure signatures | `peft-doctor investigate-distributed ./rank-logs` |
+| `assistant` | Retrieve matching lines from local project files for a question | `peft-doctor assistant ./my-run --question "Why did training stop?"` |
 | `lora-efficiency` | Review rank and target coverage without quality guessing | `peft-doctor lora-efficiency --model llama-3-8b --rank 32` |
 | `compare-adapters` | Compare two local adapter configs and actual file metadata | `peft-doctor compare-adapters ./adapter-a ./adapter-b` |
 | `inspect-adapter` | Check adapter config, weights, and base-model metadata | `peft-doctor inspect-adapter ./adapter --base-model org/model` |
@@ -488,9 +544,7 @@ Do not paste an access token into a notebook, command, config, or repository. Us
 
 ## Scope And Evidence
 
-PEFT Doctor performs static checks, bounded dataset sampling, local file validation, and formula-based planning. It does not claim to prove final model quality, training success, factual correctness, safety, or cloud performance.
-
-The test suite covers fixer behavior, dataset checks, diagnostics, recipes, adapter merge plans, checkpoint integrity, manifests, distributed settings, generation settings, and the current PEFT/TRL checks described above.
+PEFT Doctor performs static checks, bounded dataset sampling, local file validation, and formula-based planning. These checks do not establish model quality, training success, factual correctness, or production readiness. Review each finding against the model, trainer, and dataset in use.
 
 - [Compatibility matrix](https://github.com/awais-akhtar/peft-doctor/blob/main/docs/compatibility-matrix.md)
 - [Command guide](https://github.com/awais-akhtar/peft-doctor/blob/main/docs/commands.md)

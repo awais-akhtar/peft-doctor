@@ -248,7 +248,7 @@ When the model name does not include a parameter count, the estimator reports it
 
 ## `peft-doctor diagnose`
 
-Prioritized local diagnosis for a training script, dataset, model, and GPU. The command runs documented rules and does not upload files.
+Prioritized diagnosis for a training script, dataset, model, and GPU. The script and dataset checks use local files. If a remote model identifier is supplied, metadata lookup may contact the configured model host.
 
 ```bash
 peft-doctor diagnose train.py
@@ -485,7 +485,7 @@ peft-doctor cloud
 peft-doctor cloud --output markdown
 ```
 
-The local CLI does not upload logs, datasets, adapters, configs, or tokens. This command documents the long-term hosted-reporting idea only.
+This command only prints roadmap information; it does not transmit files or contact a hosted service.
 
 ## `peft-doctor dataset-doctor`
 
@@ -539,7 +539,7 @@ It checks hard-coded Hugging Face tokens, risky login cells, stale package pins,
 Use this for the fixer's supported repair patterns. Start with dry-run mode:
 
 ```bash
-peft-doctor fix --dry-run train.py
+peft-doctor fix --input train.py --dry-run
 ```
 
 Typical output:
@@ -1219,6 +1219,150 @@ Use it in bug reports:
 python -m pip show peft-doctor
 peft-doctor version
 ```
+
+## `peft-doctor investigate`
+
+Connect local dataset, training script, and log evidence into possible causes:
+
+```bash
+peft-doctor investigate ./run --output markdown
+```
+
+It does not load a model or execute training. Row numbers and filenames in the report point to the evidence used.
+
+## `peft-doctor inspect-objective`
+
+Inspect stored text, chat turns, and label masks for one one-based row:
+
+```bash
+peft-doctor inspect-objective data.jsonl --row 42
+peft-doctor inspect-objective ./run --row 42 --tokenizer ./tokenizer
+```
+
+The optional tokenizer must be local. For chat rows it renders that tokenizer's chat template. It does not run the trainer's collator, packing, truncation, or final loss-mask pipeline.
+
+## `peft-doctor gradients`
+
+Inspect a JSON gradient summary for zero/nonfinite gradients, zero updates, and optimizer omissions:
+
+```bash
+peft-doctor gradients gradient-summary.json
+```
+
+Use a JSON summary with `parameters` entries containing `trainable`, `grad_norm`, and optionally `update_norm` and `parameter_norm`; optionally include `optimizer_parameters`. Relative updates at or below `1e-8` are flagged as a screening heuristic. Pickle-based `.pt` and `.bin` files are not loaded.
+
+Create one around a real optimizer step with `snapshot_trainable_parameters(model)` and `collect_gradient_snapshot(model, optimizer, before)`; see the [investigation guide](https://github.com/awais-akhtar/peft-doctor/blob/main/docs/intelligent-investigations.md#inspect-gradient-flow).
+
+## `peft-doctor minimize`
+
+Reduce a reproducible JSONL failure using an argument-array command from a JSON specification:
+
+```bash
+peft-doctor minimize failure.json --allow-execution --budget-runs 10
+```
+
+The spec must include `dataset`, `argv` with a `{dataset}` placeholder, and optionally `failure_exit_code` (default `1`). Review the command before allowing it. It runs with `shell=False`, writes a minimized dataset beside the spec, and is capped at 100 runs. The command can still perform actions available to your account; inspect its output for private data.
+
+## `peft-doctor conflicts`
+
+Find similar prompts with different answers for human review:
+
+```bash
+peft-doctor conflicts data.jsonl --threshold 0.82 --limit 5000
+```
+
+String similarity produces candidates, not proof of contradictory or incorrect answers.
+
+## `peft-doctor coverage`
+
+Compare dataset text to user-supplied task keywords in YAML/JSON:
+
+```bash
+peft-doctor coverage data.jsonl --tasks tasks.yaml
+```
+
+Use a `tasks` list with task `name` and `keywords`. Optional `languages` entries can supply marker keywords; `conversation_patterns` entries can name exact role sequences. The report also shows observed roles, role sequences, tool-call rows, and character-script hints. It does not identify languages from text or score task quality.
+
+## `peft-doctor privacy`
+
+Scan local data for common email, phone, token-shaped secret, and private-key patterns:
+
+```bash
+peft-doctor privacy data.jsonl --redacted-output data.redacted.jsonl
+```
+
+Redacted output must use `.json` or `.jsonl`. Pattern checks can miss sensitive values or redact benign text; review the output.
+
+## `peft-doctor strategy`
+
+Get rule-based guidance for prompting, retrieval, and fine-tuning from a YAML/JSON requirements file:
+
+```bash
+peft-doctor strategy requirements.yaml
+```
+
+Fields include `facts_change_often`, `consistent_behavior`, `representative_examples`, and `private_data`. The command does not predict model quality.
+
+## `peft-doctor plan`
+
+Compare a QLoRA VRAM estimate and required throughput with supplied budgets:
+
+```bash
+peft-doctor plan --model llama-3-8b --vram 16 --hours 4 --seq-len 2048 --batch-size 1 --gpu-count 2 --disk-gb 80 --required-disk-gb 60 --dataset-tokens 5000000 --measured-tokens-per-second 500
+```
+
+Supply `--params-billion` when the model size is not recognized. Disk size and throughput are only compared when supplied; measured speed should come from a comparable run. VRAM remains a formula estimate, and provider prices are not inferred.
+
+## `peft-doctor compose-plan`
+
+Compare local adapter configs before selecting a composition method:
+
+```bash
+peft-doctor compose-plan ./adapter-a ./adapter-b
+```
+
+This inspects metadata only; it does not merge or prove weight compatibility.
+
+## `peft-doctor serving-check`
+
+Review adapter metadata that may affect deployment in a named serving engine:
+
+```bash
+peft-doctor serving-check ./adapter --engine vllm
+```
+
+Static checks cannot prove runtime support. Confirm the engine version, base revision, tokenizer, and adapter features in a small deployment test.
+
+## `peft-doctor next-experiment`
+
+Review recorded local experiment history:
+
+```bash
+peft-doctor history ./my-run --add-status oom --note "Reduced sequence length"
+peft-doctor next-experiment ./my-run
+```
+
+History is stored at `.peft-doctor/history.jsonl`. Add records with `peft-doctor history ./my-run --add-status oom --note "Reduced sequence length"`. The command cites available records and identifies missing comparison evidence rather than guessing a best hyperparameter.
+
+## `peft-doctor investigate-distributed`
+
+Scan a directory of per-rank logs for common distributed failures:
+
+```bash
+peft-doctor investigate-distributed ./rank-logs --output markdown
+```
+
+It flags OOM, NCCL/collective, timeout, uneven-input, and device errors. Line numbers across files are not a shared clock.
+
+## `peft-doctor assistant`
+
+Search local project evidence for a question and cite matching files and lines:
+
+```bash
+peft-doctor assistant ./my-run --question "Why did training stop?"
+```
+
+This local command does not call an LLM or upload files. It retrieves matching evidence from a bounded set of scripts, logs, JSON, and JSONL files.
 
 ## Python API Examples
 

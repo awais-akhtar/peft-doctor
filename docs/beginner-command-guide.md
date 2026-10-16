@@ -2,7 +2,7 @@
 
 This guide is for developers who are new to PEFT, LoRA, QLoRA, TRL, or Colab fine-tuning. It explains what each `peft-doctor` command is for, gives a copy-paste example, and tells you what to do with the output.
 
-PEFT Doctor is local by default. It reads the files you point it at and prints reports. It does not upload your scripts, datasets, logs, adapters, or tokens.
+File-based checks read the paths supplied and create reports locally. Model or tokenizer metadata lookup by remote identifier can contact the configured model host; merge and Hub-upload commands may transfer model files when explicitly configured. The package does not send files to a PEFT Doctor service.
 
 ## Start Here
 
@@ -25,7 +25,7 @@ The simplest beginner flow is:
 peft-doctor env
 peft-doctor dataset-doctor data.jsonl
 peft-doctor check train.py --explain
-peft-doctor fix --dry-run train.py
+peft-doctor fix --input train.py --dry-run
 peft-doctor optimize . --html-report peft-doctor-report.html
 ```
 
@@ -40,7 +40,7 @@ If any command prints warnings, fix the highest-risk items first, then run the s
 | `recipe` | You want a complete runnable example for a common setup. | `peft-doctor recipe llama3-qlora-colab --copy ./my-run` | Review `./my-run/train.py`, add your model access if needed, and validate the project. |
 | `validate-recipe` | You copied or generated a recipe and want to know if required files are present. | `peft-doctor validate-recipe ./my-run` | If a required file is missing, copy the recipe again or restore that file. |
 | `check` | You want a pre-flight check before training. This is the command to run most often. | `peft-doctor check train.py --dataset data.jsonl --model llama-3-8b --explain` | Fix high-risk findings first: OOM risk, bad labels, wrong target modules, missing pad token, and precision conflicts. |
-| `fix` | You want PEFT Doctor to preview supported patches for common script, config, or dataset mistakes. | `peft-doctor fix --dry-run train.py` | Read the patch list. If it looks right, write a copy with `--output train.fixed.py` or apply with `--write`. |
+| `fix` | Preview supported patches for a script, config, or dataset. | `peft-doctor fix --input train.py --dry-run` | Review the report, then write a copy with `--output train.fixed.py` or apply with `--write`. |
 | `diagnose` | You want a plain-English explanation of why a run may fail. | `peft-doctor diagnose train.py --dataset data.jsonl --model llama-3-8b --gpu T4` | Apply the recommended fixes in order, then run `simulate` or `check` again. |
 | `simulate` | You want to check a training plan without loading a model. | `peft-doctor simulate --model llama-3-8b --dataset data.jsonl --gpu L4 --seq-len 2048 --batch-size 2` | Review the formula-based VRAM and evaluation warnings; supply measured throughput or checkpoint size only when you have them. |
 | `optimize` | You want one command that checks config, dataset, tokenizer, LoRA, memory, and project score. | `peft-doctor optimize . --html-report optimize-report.html` | Open the HTML report and fix the warnings before using `--write`. |
@@ -124,7 +124,7 @@ If any command prints warnings, fix the highest-risk items first, then run the s
 | `history` | You want lightweight local run history. | `peft-doctor history . --add-status completed --metric "BLEU +3.1"` | Run `peft-doctor history .` later to compare attempts. |
 | `knowledge-base` | You want local guidance for a known failure phrase. | `peft-doctor knowledge-base "CUDA illegal memory access"` | Try the most common fix, then run the relevant checker again. |
 | `chat` | You want to ask a local troubleshooting question with optional dataset/log context. | `peft-doctor chat "Why is my loss exploding?" --dataset data.jsonl --log trainer.log` | Use the pointed row or log finding to fix the real source of the failure. |
-| `cloud` | You want to read the long-term hosted-reporting roadmap. | `peft-doctor cloud` | Treat it as roadmap information. The local command does not upload anything. |
+| `cloud` | Read the hosted-reporting roadmap. | `peft-doctor cloud` | This command prints roadmap information and does not transmit data. |
 | `manifest` | You want a reproducible identity for the code/config/data files used in a run. | `peft-doctor manifest . --output run-manifest.json` | Keep the manifest with the run notes; review paths before sharing it. |
 | `verify-manifest` | You need to confirm the project and package versions still match a recorded run. | `peft-doctor verify-manifest run-manifest.json` | Restore changed files/versions or create a new run manifest. |
 
