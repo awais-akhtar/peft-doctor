@@ -155,7 +155,12 @@ def inspect_objective(dataset: Path, row_number: int, tokenizer_path: Optional[s
         try:
             from transformers import AutoTokenizer
 
-            tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, local_files_only=True, trust_remote_code=False)
+            # This path is explicitly local-only; remote code execution is disabled.
+            tokenizer = AutoTokenizer.from_pretrained(  # nosec B615
+                tokenizer_path,
+                local_files_only=True,
+                trust_remote_code=False,
+            )
             if isinstance(messages, list) and hasattr(tokenizer, "apply_chat_template"):
                 rendered = tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=False)
                 token_ids = rendered.tolist() if hasattr(rendered, "tolist") else rendered

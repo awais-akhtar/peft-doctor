@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "peft-doctor"
-version = "0.9.1"
+version = "0.9.2"
 description = "PEFT Doctor: local pre-flight checks, auto-fixes, checkpoint recovery, reproducibility, and failure explanations for LoRA/QLoRA fine-tuning."
 readme = "README.md"
 requires-python = ">=3.9"
